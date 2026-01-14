@@ -8,7 +8,7 @@ An industry-ready Gmail integration for Saral ERP, allowing multi-account email 
 - **Bi-directional Sync**: Read and send emails directly from the dashboard.
 - **Conversation Threading**: Intelligent grouping of emails into threads.
 - **REST API**: Production-grade API endpoints for integration with other systems.
-- **Industry Standards**: 
+- **Standards**: 
     - API Rate Limiting (throttling)
     - Automated Swagger/Redoc documentation
     - PostgreSQL support for production
