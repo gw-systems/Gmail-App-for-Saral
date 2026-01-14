@@ -25,10 +25,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-#=o5n7fjnwh=jcsmmyi+db=7nuu9u-n1yj*-kcxd0hiciy*+(e")
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DEBUG", "True") == "True"
+DEBUG = os.getenv("DEBUG", "False") == "True"
+
+if not SECRET_KEY and DEBUG:
+    SECRET_KEY = "django-insecure-development-key-only"
+elif not SECRET_KEY:
+    raise ValueError("DJANGO_SECRET_KEY must be set in production!")
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
@@ -161,15 +166,6 @@ GMAIL_REDIRECT_URI = 'http://localhost:8000/oauth2callback'
 LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/inbox/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
-
-# Admin Email Addresses (users with access to all accounts)
-ADMIN_EMAILS = ['systems@godamwale.com']
-
-# Account Colors for UI (CSS classes will be defined in templates)
-ACCOUNT_COLORS = {
-    'kartik@godamwale.com': '#8B5CF6',  # Purple
-    'systems@godamwale.com': '#10B981',  # Green
-}
 
 # Django Rest Framework Configuration
 REST_FRAMEWORK = {

@@ -98,8 +98,8 @@ def inbox_view(request):
     from django.conf import settings
     from .models import GmailToken
     
-    # Check if user is admin
-    is_admin = request.user.email in settings.ADMIN_EMAILS
+    # Check if user is admin (using staff permission)
+    is_admin = request.user.is_staff
     
     # Get selected account from query params
     selected_account = request.GET.get('account', 'all')

@@ -17,9 +17,7 @@ class EmailViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        # Admins see everything, regular users only see their own accounts
-        from django.conf import settings
-        if user.email in getattr(settings, 'ADMIN_EMAILS', []):
+        if user.is_staff:
             return Email.objects.all()
         
         user_accounts = GmailToken.objects.filter(user=user).values_list('email_account', flat=True)

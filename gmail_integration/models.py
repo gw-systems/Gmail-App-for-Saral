@@ -10,6 +10,7 @@ class GmailToken(models.Model):
     email_account = models.EmailField(db_index=True, help_text="Gmail address (e.g., support@godamwale.com)")
     token_data = models.JSONField(help_text="Stores access token, refresh token, and expiry")
     is_active = models.BooleanField(default=True, help_text="Whether this account is actively syncing")
+    account_color = models.CharField(max_length=50, default='account-gray', help_text="CSS class for account color (e.g., account-purple)")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -85,13 +86,12 @@ class Email(models.Model):
         return f"[{self.account_email}] {self.subject[:50]} - {self.sender}"
     
     def get_account_color_class(self):
-        """Get CSS class for account color coding"""
-        # Map email accounts to color classes for UI
-        color_map = {
-            'kartik@godamwale.com': 'account-purple',
-            'systems@godamwale.com': 'account-green',
-        }
-        return color_map.get(self.account_email, 'account-gray')
+        """Get CSS class for account color coding from the associated GmailToken"""
+        # Fetch the color from the database instead of hardcoding
+        token = GmailToken.objects.filter(email_account=self.account_email).first()
+        if token:
+            return token.account_color
+        return 'account-gray'
     
     @property
     def is_inbox(self):

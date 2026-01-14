@@ -214,7 +214,7 @@ def fetch_email_detail(service, message_id):
 
 def fetch_emails(service, account_email, label='INBOX', max_results=100):
     """
-    Fetch emails from Gmail and save to database with account tracking
+    Fetch emails from Gmail using Batch API for performance
     
     Args:
         service: Authenticated Gmail service for specific account
@@ -243,16 +243,20 @@ def fetch_emails(service, account_email, label='INBOX', max_results=100):
             logger.info(f"No messages found in {label} for {account_email}")
             return 0
         
-        logger.info(f"Fetching {len(messages)} emails from {label} for {account_email}...")
+        logger.info(f"Batch fetching {len(messages)} emails from {label} for {account_email}...")
         
+        # Batch processing setup
         emails_saved = 0
-        for msg in messages:
-            # Fetch full message details
-            message_data = fetch_email_detail(service, msg['id'])
+        
+        def batch_callback(request_id, response, exception):
+            nonlocal emails_saved
+            if exception:
+                logger.error(f"Error in batch request {request_id}: {exception}")
+                return
             
-            if message_data:
+            try:
                 # Parse email
-                email_data = parse_email_message(message_data)
+                email_data = parse_email_message(response)
                 
                 # ADD ACCOUNT EMAIL TO DATA
                 email_data['account_email'] = account_email
@@ -261,11 +265,39 @@ def fetch_emails(service, account_email, label='INBOX', max_results=100):
                 email_obj, created = save_email_to_db(email_data)
                 emails_saved += 1
                 
-                if created:
-                    logger.debug(f"  ✓ Saved: {email_data['subject'][:50]}")
-                else:
-                    logger.debug(f"  ↻ Updated: {email_data['subject'][:50]}")
+                # Log occasionally to avoid spamming
+                if emails_saved % 10 == 0:
+                    logger.debug(f"  Processed {emails_saved} emails...")
+                    
+            except Exception as e:
+                logger.error(f"Error processing batch email response: {e}")
+
+        # Create batch request
+        # Google API Rate Limit Fix: Split into chunks of 20
+        chunk_size = 20
+        total_chunks = (len(messages) + chunk_size - 1) // chunk_size
         
+        for i in range(0, len(messages), chunk_size):
+            chunk = messages[i:i + chunk_size]
+            current_chunk = (i // chunk_size) + 1
+            logger.debug(f"Processing chunk {current_chunk}/{total_chunks} ({len(chunk)} emails)...")
+            
+            batch = service.new_batch_http_request(callback=batch_callback)
+            
+            for msg in chunk:
+                batch.add(service.users().messages().get(
+                    userId='me', 
+                    id=msg['id'], 
+                    format='full'
+                ))
+            
+            # Execute batch chunk
+            try:
+                batch.execute()
+            except Exception as e:
+                logger.error(f"Error executing batch chunk {current_chunk}: {e}")
+                
+        logger.info(f"Batch sync complete for {account_email} ({label}): {emails_saved} messages saved.")
         return emails_saved
         
     except Exception as e:
