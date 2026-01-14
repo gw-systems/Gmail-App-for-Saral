@@ -1,7 +1,6 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse
 from django.contrib import messages
-from django.db.models import Q, Count, Max
 from django.contrib.auth.decorators import login_required
 from .models import Email, GmailToken
 from .utils.gmail_auth import initiate_oauth_flow, handle_oauth_callback, is_authenticated, get_gmail_service
@@ -95,8 +94,7 @@ def oauth2callback(request):
 @login_required
 def inbox_view(request):
     """Display all emails (inbox + sent) grouped by thread with multi-account support"""
-    from django.conf import settings
-    from .models import GmailToken
+    from .services import EmailService
     
     # Check if user is admin (using staff permission)
     is_admin = request.user.is_staff
@@ -104,70 +102,11 @@ def inbox_view(request):
     # Get selected account from query params
     selected_account = request.GET.get('account', 'all')
     
-    if is_admin:
-        # Admins see all active accounts
-        available_accounts = GmailToken.objects.filter(
-            is_active=True
-        ).values_list('email_account', flat=True).distinct()
-        
-        # Filter emails by selected account
-        if selected_account == 'all':
-            all_emails = Email.objects.all().order_by('-date')
-        else:
-            all_emails = Email.objects.filter(
-                account_email=selected_account
-            ).order_by('-date')
-
-    else:
-        # Regular users only see their own accounts
-        user_tokens = GmailToken.objects.filter(
-            user=request.user, 
-            is_active=True
-        )
-        available_accounts = user_tokens.values_list('email_account', flat=True)
-        
-        # Filter to user's accounts only
-        all_emails = Email.objects.filter(
-            account_email__in=available_accounts
-        ).order_by('-date')
-    
-    # OPTIMIZED: Use database aggregation instead of in-memory grouping
-    from django.db.models import Count, Max, Subquery, OuterRef
-    
-    # Build base queryset based on permissions
-    if is_admin:
-        if selected_account == 'all':
-            base_emails = Email.objects.all()
-        else:
-            base_emails = Email.objects.filter(account_email=selected_account)
-    else:
-        base_emails = Email.objects.filter(account_email__in=available_accounts)
-    
-    # Subquery to get the ID of the latest email per thread
-    latest_email_subquery = base_emails.filter(
-        thread_id=OuterRef('thread_id')
-    ).order_by('-date').values('id')[:1]
-    
-    # Aggregate threads with message count and latest email ID
-    threads = base_emails.values('thread_id').annotate(
-        message_count=Count('id'),
-        latest_date=Max('date'),
-        latest_email_id=Subquery(latest_email_subquery)
-    ).order_by('-latest_date')
-    
-    # Fetch all latest emails in one query
-    latest_email_ids = [t['latest_email_id'] for t in threads]
-    latest_emails = Email.objects.in_bulk(latest_email_ids)
-    
-    # Build thread list
-    thread_list = [
-        {
-            'thread_id': thread['thread_id'],
-            'message_count': thread['message_count'],
-            'latest_email': latest_emails[thread['latest_email_id']],
-        }
-        for thread in threads
-    ]
+    # Get threads using service
+    thread_list, available_accounts = EmailService.get_threads_for_user(
+        request.user, 
+        account_filter=selected_account
+    )
     
     context = {
         'threads': thread_list,
@@ -222,6 +161,8 @@ def search_emails(request):
     Search emails by sender/recipient name or email address
     Results are grouped by thread
     """
+    from .services import EmailService
+
     # Check authentication
     if not is_authenticated(user=request.user):
         return render(request, 'gmail_integration/auth_required.html')
@@ -232,51 +173,18 @@ def search_emails(request):
         # No search query, redirect to inbox
         return redirect('inbox')
     
-    # Search in sender, sender_name, recipient, cc, bcc
-    emails = Email.objects.filter(
-        Q(sender__icontains=query) |
-        Q(sender_name__icontains=query) |
-        Q(recipient__icontains=query) |
-        Q(cc__icontains=query) |
-        Q(bcc__icontains=query)
-    ).distinct()
-    
-    # OPTIMIZED: Use database aggregation instead of in-memory grouping
-    from django.db.models import Count, Max, Subquery, OuterRef
-    
-    # Subquery to get the ID of the latest email per thread
-    latest_email_subquery = emails.filter(
-        thread_id=OuterRef('thread_id')
-    ).order_by('-date').values('id')[:1]
-    
-    # Aggregate threads with message count and latest email ID
-    threads = emails.values('thread_id').annotate(
-        message_count=Count('id'),
-        latest_date=Max('date'),
-        latest_email_id=Subquery(latest_email_subquery)
-    ).order_by('-latest_date')
-    
-    # Fetch all latest emails in one query
-    latest_email_ids = [t['latest_email_id'] for t in threads]
-    latest_emails = Email.objects.in_bulk(latest_email_ids)
-    
-    # Build thread list
-    thread_list = [
-        {
-            'thread_id': thread['thread_id'],
-            'message_count': thread['message_count'],
-            'latest_email': latest_emails[thread['latest_email_id']],
-            'latest_date': thread['latest_date'],
-            'first_subject': latest_emails[thread['latest_email_id']].subject,
-            'latest_snippet': latest_emails[thread['latest_email_id']].snippet,
-        }
-        for thread in threads
-    ]
+    # Get threads using service with search query
+    thread_list, _ = EmailService.get_threads_for_user(
+        request.user, 
+        search_query=query
+    )
     
     context = {
         'query': query,
         'threads': thread_list,
-        'total_emails': emails.count(),
+        # 'total_emails' was redundant/unused in previous logic's context for display, 
+        # but we can get it from thread_list length or similar if needed. 
+        # For now, sticking to providing threads.
         'total_threads': len(thread_list),
         'page_title': f'Search: {query}',
         'active_page': 'search'
