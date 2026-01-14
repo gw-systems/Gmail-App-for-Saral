@@ -1,0 +1,144 @@
+{% extends 'gmail_integration/base.html' %}
+
+{% block title %}{{ email.subject }} - Gmail Viewer{% endblock %}
+
+{% block extra_css %}
+<style>
+    .email-detail {
+        background: white;
+    }
+
+    .email-detail-header {
+        background: #f8f9fa;
+        padding: 25px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .email-subject-detail {
+        font-size: 24px;
+        font-weight: 700;
+        color: #212529;
+        margin-bottom: 20px;
+    }
+
+    .email-meta {
+        display: grid;
+        gap: 12px;
+    }
+
+    .email-meta-item {
+        display: flex;
+        gap: 10px;
+    }
+
+    .email-meta-label {
+        font-weight: 600;
+        color: #495057;
+        min-width: 80px;
+    }
+
+    .email-meta-value {
+        color: #6c757d;
+    }
+
+    .email-body {
+        background: white;
+        padding: 25px;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        line-height: 1.8;
+        color: #212529;
+    }
+
+    .email-body-text {
+        white-space: pre-wrap;
+        font-family: Georgia, serif;
+    }
+
+    .email-body iframe {
+        width: 100%;
+        border: none;
+        min-height: 400px;
+    }
+
+    .back-button {
+        margin-bottom: 20px;
+        display: inline-block;
+    }
+
+    .labels-section {
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid #e9ecef;
+    }
+
+    .label-tag {
+        display: inline-block;
+        padding: 6px 12px;
+        background: #667eea;
+        color: white;
+        border-radius: 16px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-right: 8px;
+        margin-bottom: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="back-button">
+    <a href="{% if email.is_inbox %}{% url 'inbox' %}{% else %}{% url 'sent' %}{% endif %}" class="btn">← Back</a>
+</div>
+
+<div class="email-detail">
+    <div class="email-detail-header">
+        <h1 class="email-subject-detail">{{ email.subject }}</h1>
+
+        <div class="email-meta">
+            <div class="email-meta-item">
+                <span class="email-meta-label">From:</span>
+                <span class="email-meta-value">{{ email.sender }}</span>
+            </div>
+
+            {% if email.recipient %}
+            <div class="email-meta-item">
+                <span class="email-meta-label">To:</span>
+                <span class="email-meta-value">{{ email.recipient }}</span>
+            </div>
+            {% endif %}
+
+            <div class="email-meta-item">
+                <span class="email-meta-label">Date:</span>
+                <span class="email-meta-value">{{ email.date|date:"F d, Y, g:i A" }}</span>
+            </div>
+
+            {% if email.has_attachments %}
+            <div class="email-meta-item">
+                <span class="email-meta-label">📎</span>
+                <span class="email-meta-value">Has attachments</span>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if email.label_list %}
+        <div class="labels-section">
+            {% for label in email.label_list %}
+            <span class="label-tag">{{ label }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="email-body">
+        {% if email.body_html %}
+        <div>{{ email.body_html|safe }}</div>
+        {% elif email.body_text %}
+        <div class="email-body-text">{{ email.body_text }}</div>
+        {% else %}
+        <p style="color: #6c757d; font-style: italic;">{{ email.snippet }}</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

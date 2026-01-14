@@ -1,0 +1,96 @@
+{% extends 'gmail_integration/base.html' %}
+
+{% block title %}Authentication Required - Gmail Viewer{% endblock %}
+
+{% block nav %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .auth-required {
+        text-align: center;
+        padding: 60px 20px;
+    }
+
+    .auth-icon {
+        font-size: 80px;
+        margin-bottom: 30px;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+
+        0%,
+        100% {
+            transform: scale(1);
+        }
+
+        50% {
+            transform: scale(1.1);
+        }
+    }
+
+    .auth-required h2 {
+        font-size: 32px;
+        color: #212529;
+        margin-bottom: 15px;
+    }
+
+    .auth-required p {
+        color: #6c757d;
+        font-size: 18px;
+        margin-bottom: 30px;
+        line-height: 1.6;
+    }
+
+    .auth-steps {
+        background: #f8f9fa;
+        padding: 30px;
+        border-radius: 8px;
+        margin: 30px 0;
+        text-align: left;
+        max-width: 500px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .auth-steps h3 {
+        color: #495057;
+        margin-bottom: 15px;
+    }
+
+    .auth-steps ol {
+        color: #6c757d;
+        line-height: 2;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-required">
+    <div class="auth-icon">🔐</div>
+    <h2>Authentication Required</h2>
+    <p>
+        To view your Gmail emails, you need to authenticate with Google first.<br>
+        Click the button below to securely connect your Gmail account.
+    </p>
+
+    <div class="auth-steps">
+        <h3>What happens next?</h3>
+        <ol>
+            <li>You'll be redirected to Google</li>
+            <li>Sign in with your Gmail account</li>
+            <li>Grant permission to read your emails</li>
+            <li>You'll be redirected back here</li>
+            <li>Your emails will be synced automatically</li>
+        </ol>
+    </div>
+
+    <a href="{% url 'start_auth' %}" class="btn" style="font-size: 18px; padding: 15px 40px;">
+        🔑 Authenticate with Gmail
+    </a>
+
+    <p style="margin-top: 30px; font-size: 14px; color: #adb5bd;">
+        <strong>Note:</strong> This app only reads your emails. It cannot send, delete, or modify them.
+    </p>
+</div>
+{% endblock %}

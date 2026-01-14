@@ -1,0 +1,206 @@
+{% extends 'gmail_integration/base.html' %}
+
+{% block title %}{{ subject }} - Gmail Viewer{% endblock %}
+
+{% block extra_css %}
+<style>
+    .thread-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 12px;
+        margin-bottom: 30px;
+    }
+
+    .thread-subject {
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 10px;
+    }
+
+    .thread-meta {
+        font-size: 14px;
+        opacity: 0.9;
+    }
+
+    .message-list {
+        list-style: none;
+    }
+
+    .message-item {
+        background: white;
+        border: 2px solid #e9ecef;
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 20px;
+        position: relative;
+    }
+
+    .message-item:not(:last-child)::after {
+        content: '↓';
+        position: absolute;
+        bottom: -30px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #667eea;
+        color: white;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        font-weight: 700;
+        z-index: 1;
+    }
+
+    .message-header {
+        border-bottom: 2px solid #f8f9fa;
+        padding-bottom: 15px;
+        margin-bottom: 20px;
+    }
+
+    .message-from {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        margin-bottom: 10px;
+    }
+
+    .sender-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .sender-avatar {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 18px;
+    }
+
+    .sender-details {
+        flex: 1;
+    }
+
+    .sender-name {
+        font-weight: 700;
+        font-size: 16px;
+        color: #212529;
+    }
+
+    .sender-email {
+        font-size: 14px;
+        color: #6c757d;
+    }
+
+    .message-date {
+        font-size: 14px;
+        color: #6c757d;
+    }
+
+    .message-to {
+        font-size: 14px;
+        color: #495057;
+        margin-top: 8px;
+    }
+
+    .message-body {
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        line-height: 1.6;
+        color: #495057;
+    }
+
+    .message-body iframe {
+        width: 100%;
+        border: none;
+        min-height: 200px;
+    }
+
+    .back-link {
+        display: inline-block;
+        margin-bottom: 20px;
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 600;
+    }
+
+    .back-link:hover {
+        text-decoration: underline;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="{% url 'inbox' %}" class="back-link">← Back to Inbox</a>
+
+<div class="thread-header">
+    <div class="thread-subject">{{ subject }}</div>
+    <div class="thread-meta">
+        💬 {{ message_count }} message{{ message_count|pluralize }} in this conversation
+    </div>
+</div>
+
+<ul class="message-list">
+    {% for email in emails %}
+    <li class="message-item">
+        <div class="message-header">
+            <div class="message-from">
+                <div class="sender-info">
+                    <div class="sender-avatar">
+                        {{ email.sender_name.0|default:email.sender.0|upper }}
+                    </div>
+                    <div class="sender-details">
+                        <div class="sender-name">
+                            {% if email.sender_name %}
+                            {{ email.sender_name }}
+                            {% else %}
+                            {{ email.sender }}
+                            {% endif %}
+                        </div>
+                        <div class="sender-email">&lt;{{ email.sender }}&gt;</div>
+                    </div>
+                </div>
+                <div class="message-date">
+                    {{ email.date|date:"M d, Y H:i" }}
+                </div>
+            </div>
+
+            <div class="message-to">
+                <strong>To:</strong> {{ email.recipient }}
+                {% if email.cc %}
+                <br><strong>CC:</strong> {{ email.cc }}
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="message-body">
+            {% if email.body_html %}
+            <div style="padding: 10px;">{{ email.body_html|safe }}</div>
+            {% elif email.body_text %}
+            <pre style="white-space: pre-wrap; font-family: inherit; margin: 0;">{{ email.body_text }}</pre>
+            {% else %}
+            <p style="color: #6c757d; font-style: italic;">{{ email.snippet }}</p>
+            {% endif %}
+        </div>
+
+        {% if email.has_attachments %}
+        <div style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 6px; color: #856404;">
+            📎 This email has attachments
+        </div>
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>
+
+{% endblock %}
