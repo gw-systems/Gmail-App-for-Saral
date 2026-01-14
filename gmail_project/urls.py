@@ -17,9 +17,26 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from gmail_integration.api_views import EmailViewSet, GmailTokenViewSet, SyncStatusViewSet
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+
+# Create a router and register our viewsets with it.
+router = DefaultRouter()
+router.register(r'emails', EmailViewSet, basename='email')
+router.register(r'tokens', GmailTokenViewSet, basename='token')
+router.register(r'sync-status', SyncStatusViewSet, basename='sync-status')
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/", include("accounts.urls")),
     path("", include("gmail_integration.urls")),
+    
+    # API endpoints
+    path('api/', include(router.urls)),
+    
+    # API Documentation
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]
