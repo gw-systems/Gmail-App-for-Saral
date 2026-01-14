@@ -171,6 +171,9 @@
             <a href="{% url 'inbox' %}" class="{% if active_page == 'inbox' %}active{% endif %}">
                 📧 All Mail
             </a>
+            <a href="{% url 'compose_email' %}" class="{% if active_page == 'compose' %}active{% endif %}">
+                ✍️ Compose
+            </a>
             <a href="{% url 'force_sync' %}" class="{% if active_page == 'sync' %}active{% endif %}">
                 🔄 Sync
             </a>

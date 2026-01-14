@@ -11,4 +11,5 @@ urlpatterns = [
     path('email/<int:email_id>/', views.email_detail_view, name='email_detail'),
     path('sync/', views.force_sync_view, name='force_sync'),
     path('search/', views.search_emails, name='search_emails'),
+    path('compose/', views.compose_email_view, name='compose_email'),
 ]

@@ -3,9 +3,9 @@ from django.http import HttpResponse
 from django.contrib import messages
 from django.db.models import Q, Count, Max
 from django.contrib.auth.decorators import login_required
-from .models import Email
-from .utils.gmail_auth import initiate_oauth_flow, handle_oauth_callback, is_authenticated
-from .utils.gmail_api import check_for_new_emails, sync_all_emails
+from .models import Email, GmailToken
+from .utils.gmail_auth import initiate_oauth_flow, handle_oauth_callback, is_authenticated, get_gmail_service
+from .utils.gmail_api import check_for_new_emails, sync_all_emails, create_message, send_email
 
 
 def home(request):
@@ -293,10 +293,60 @@ def email_detail_view(request, email_id):
 @login_required
 def force_sync_view(request):
     """Manually force a full sync (useful for testing)"""
-    if not is_authenticated():
-        return redirect('start_auth')
-    
     sync_all_emails()
-    messages.success(request, "Email sync completed!")
-    
+    messages.success(request, "Gmail sync completed successfully.")
     return redirect('inbox')
+
+
+@login_required
+def compose_email_view(request):
+    """
+    Handle composing and sending emails.
+    Admin can send from any account.
+    """
+    # Get authorized accounts
+    if request.user.is_superuser:
+        # Admin can see all active tokens
+        authorized_accounts = GmailToken.objects.filter(is_active=True)
+    else:
+        # Regular user only sees their own
+        authorized_accounts = GmailToken.objects.filter(user=request.user, is_active=True)
+    
+    if not authorized_accounts.exists():
+        messages.warning(request, "Please connect a Gmail account before composing an email.")
+        return redirect('home')
+
+    if request.method == 'POST':
+        sender_email = request.POST.get('from_account')
+        to_email = request.POST.get('to')
+        subject = request.POST.get('subject')
+        message_text = request.POST.get('message')
+        cc = request.POST.get('cc', '')
+        bcc = request.POST.get('bcc', '')
+
+        if not all([sender_email, to_email, subject, message_text]):
+            messages.error(request, "Please fill in all required fields.")
+        else:
+            # Get service for the selected sender account
+            service = get_gmail_service(account_email=sender_email)
+            if service:
+                # Create and send message
+                msg = create_message(sender_email, to_email, subject, message_text, cc, bcc)
+                sent_msg = send_email(service, 'me', msg)
+                
+                if sent_msg:
+                    messages.success(request, f"Email sent successfully from {sender_email}!")
+                    # Trigger a sync for the sent folder to show the email in the app
+                    from .utils.gmail_api import fetch_emails
+                    fetch_emails(service, sender_email, 'SENT', 1)
+                    return redirect('inbox')
+                else:
+                    messages.error(request, "Failed to send email. Please check your connection and try again.")
+            else:
+                messages.error(request, f"Could not authenticate with {sender_email}.")
+
+    context = {
+        'authorized_accounts': authorized_accounts,
+        'title': 'Compose Email'
+    }
+    return render(request, 'gmail_integration/compose_email.html', context)

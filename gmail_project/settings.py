@@ -130,7 +130,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Gmail API Configuration
 GMAIL_CREDENTIALS_PATH = os.path.join(BASE_DIR, os.getenv('GMAIL_CREDENTIALS_PATH', 'credentials.json'))
-GMAIL_SCOPES = [os.getenv('GMAIL_SCOPES', 'https://www.googleapis.com/auth/gmail.readonly')]
+GMAIL_SCOPES = os.getenv('GMAIL_SCOPES', 'https://www.googleapis.com/auth/gmail.readonly').split(',')
 GMAIL_REDIRECT_URI = 'http://localhost:8000/oauth2callback'
 
 # Authentication Settings

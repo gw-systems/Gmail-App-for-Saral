@@ -4,6 +4,7 @@ Handles fetching, parsing, and syncing emails from Gmail
 """
 import base64
 import email
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 from django.utils import timezone
@@ -354,3 +355,56 @@ def check_for_new_emails():
     print("Checking for new emails across all accounts...")
     result = sync_all_emails()
     return result['total'] > 0
+
+
+def create_message(sender, to, subject, message_text, cc=None, bcc=None):
+    """
+    Create a message for an email.
+    
+    Args:
+        sender: Email address of the sender.
+        to: Email address of the receiver.
+        subject: The subject of the email message.
+        message_text: The text of the email message.
+        cc: CC recipients (string)
+        bcc: BCC recipients (string)
+
+    Returns:
+        An object containing a base64url encoded email object.
+    """
+    message = MIMEMultipart()
+    message['to'] = to
+    message['from'] = sender
+    message['subject'] = subject
+    
+    if cc:
+        message['cc'] = cc
+    if bcc:
+        message['bcc'] = bcc
+
+    msg = MIMEText(message_text)
+    message.attach(msg)
+
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+    return {'raw': raw_message}
+
+
+def send_email(service, user_id, message):
+    """
+    Send an email message.
+
+    Args:
+        service: Authorized Gmail API service instance.
+        user_id: User's email address. The special value "me" can be used to indicate the authenticated user.
+        message: Message to be sent.
+
+    Returns:
+        Sent Message.
+    """
+    try:
+        sent_message = service.users().messages().send(userId=user_id, body=message).execute()
+        print(f"Message Id: {sent_message['id']}")
+        return sent_message
+    except Exception as e:
+        print(f"An error occurred while sending email: {e}")
+        return None
