@@ -5,7 +5,12 @@ from django.db.models import Q, Count, Max
 from django.contrib.auth.decorators import login_required
 from .models import Email, GmailToken
 from .utils.gmail_auth import initiate_oauth_flow, handle_oauth_callback, is_authenticated, get_gmail_service
-from .utils.gmail_api import check_for_new_emails, sync_all_emails, create_message, send_email
+import logging
+from .utils.gmail_api import check_for_new_emails, create_message, send_email
+from django_q.tasks import async_task
+from .tasks import sync_emails_task
+
+logger = logging.getLogger(__name__)
 
 
 def home(request):
@@ -41,12 +46,8 @@ def oauth2callback(request):
         if not user_id or user_id != request.user.id:
             return HttpResponse("Invalid session. Please try again.", status=400)
         
-        print(f"\n{'='*60}")
-        print(f"[OAUTH CALLBACK] Starting...")
-        print(f"[OAUTH CALLBACK] User: {request.user.username}")
-        print(f"[OAUTH CALLBACK] Full URL: {authorization_response}")
-        print(f"[OAUTH CALLBACK] State from session: {state}")
-        print(f"{'='*60}\n")
+        logger.info(f"OAuth callback started for user: {request.user.username}")
+        logger.debug(f"State from session: {state}")
         
         # Handle the callback
         success, email_account = handle_oauth_callback(
@@ -63,8 +64,11 @@ def oauth2callback(request):
             # Success message
             messages.success(
                 request, 
-                f"Successfully connected {email_account}! Your emails will sync shortly."
+                f"Successfully connected {email_account}! Your emails are being synced in the background."
             )
+            
+            # Start background sync
+            async_task(sync_emails_task)
             
             # Redirect to profile instead of inbox
             return redirect('accounts:profile')
@@ -78,10 +82,7 @@ def oauth2callback(request):
             """, status=400)
             
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"\n[OAUTH CALLBACK ERROR] {str(e)}")
-        print(f"[OAUTH CALLBACK ERROR] Traceback:\n{error_trace}\n")
+        logger.exception(f"Error during OAuth callback: {e}")
         
         return HttpResponse(f"""
             <h1>Error during authentication</h1>
@@ -130,27 +131,43 @@ def inbox_view(request):
             account_email__in=available_accounts
         ).order_by('-date')
     
-    # Group by thread - show only latest email per thread
-    threads = {}
-    for email in all_emails:
-        if email.thread_id not in threads:
-            threads[email.thread_id] = {
-                'latest_email': email,
-                'message_count': 1,
-                'thread_id': email.thread_id,
-            }
-        else:
-            threads[email.thread_id]['message_count'] += 1
-            # Update to latest email if this one is newer
-            if email.date > threads[email.thread_id]['latest_email'].date:
-                threads[email.thread_id]['latest_email'] = email
+    # OPTIMIZED: Use database aggregation instead of in-memory grouping
+    from django.db.models import Count, Max, Subquery, OuterRef
     
-    # Convert to list and sort by date
-    thread_list = sorted(
-        threads.values(),
-        key=lambda x: x['latest_email'].date,
-        reverse=True
-    )
+    # Build base queryset based on permissions
+    if is_admin:
+        if selected_account == 'all':
+            base_emails = Email.objects.all()
+        else:
+            base_emails = Email.objects.filter(account_email=selected_account)
+    else:
+        base_emails = Email.objects.filter(account_email__in=available_accounts)
+    
+    # Subquery to get the ID of the latest email per thread
+    latest_email_subquery = base_emails.filter(
+        thread_id=OuterRef('thread_id')
+    ).order_by('-date').values('id')[:1]
+    
+    # Aggregate threads with message count and latest email ID
+    threads = base_emails.values('thread_id').annotate(
+        message_count=Count('id'),
+        latest_date=Max('date'),
+        latest_email_id=Subquery(latest_email_subquery)
+    ).order_by('-latest_date')
+    
+    # Fetch all latest emails in one query
+    latest_email_ids = [t['latest_email_id'] for t in threads]
+    latest_emails = Email.objects.in_bulk(latest_email_ids)
+    
+    # Build thread list
+    thread_list = [
+        {
+            'thread_id': thread['thread_id'],
+            'message_count': thread['message_count'],
+            'latest_email': latest_emails[thread['latest_email_id']],
+        }
+        for thread in threads
+    ]
     
     context = {
         'threads': thread_list,
@@ -176,7 +193,7 @@ def thread_view(request, thread_id):
     Display all emails in a thread (conversation view)
     """
     # Check authentication
-    if not is_authenticated():
+    if not is_authenticated(user=request.user):
         return render(request, 'gmail_integration/auth_required.html')
     
     # Get all emails in this thread
@@ -206,7 +223,7 @@ def search_emails(request):
     Results are grouped by thread
     """
     # Check authentication
-    if not is_authenticated():
+    if not is_authenticated(user=request.user):
         return render(request, 'gmail_integration/auth_required.html')
     
     query = request.GET.get('q', '').strip()
@@ -222,49 +239,44 @@ def search_emails(request):
         Q(recipient__icontains=query) |
         Q(cc__icontains=query) |
         Q(bcc__icontains=query)
-    ).distinct().order_by('-date')
+    ).distinct()
     
-    # Group by thread_id
-    threads = {}
-    for email in emails:
-        if email.thread_id not in threads:
-            threads[email.thread_id] = {
-                'thread_id': email.thread_id,
-                'emails': [],
-                'message_count': 0,
-                'participants': set(),
-                'latest_date': email.date,
-                'first_subject': email.subject,
-                'latest_snippet': email.snippet,
-            }
-        
-        thread = threads[email.thread_id]
-        thread['emails'].append(email)
-        thread['message_count'] += 1
-        
-        # Collect unique participants
-        if email.sender:
-            thread['participants'].add(email.sender)
-        if email.recipient:
-            for rec in email.recipient.split(','):
-                thread['participants'].add(rec.strip())
-        
-        # Update latest date if this email is newer
-        if email.date > thread['latest_date']:
-            thread['latest_date'] = email.date
-            thread['latest_snippet'] = email.snippet
+    # OPTIMIZED: Use database aggregation instead of in-memory grouping
+    from django.db.models import Count, Max, Subquery, OuterRef
     
-    # Convert to list and sort by latest date
-    thread_list = sorted(
-        threads.values(),
-        key=lambda x: x['latest_date'],
-        reverse=True
-    )
+    # Subquery to get the ID of the latest email per thread
+    latest_email_subquery = emails.filter(
+        thread_id=OuterRef('thread_id')
+    ).order_by('-date').values('id')[:1]
+    
+    # Aggregate threads with message count and latest email ID
+    threads = emails.values('thread_id').annotate(
+        message_count=Count('id'),
+        latest_date=Max('date'),
+        latest_email_id=Subquery(latest_email_subquery)
+    ).order_by('-latest_date')
+    
+    # Fetch all latest emails in one query
+    latest_email_ids = [t['latest_email_id'] for t in threads]
+    latest_emails = Email.objects.in_bulk(latest_email_ids)
+    
+    # Build thread list
+    thread_list = [
+        {
+            'thread_id': thread['thread_id'],
+            'message_count': thread['message_count'],
+            'latest_email': latest_emails[thread['latest_email_id']],
+            'latest_date': thread['latest_date'],
+            'first_subject': latest_emails[thread['latest_email_id']].subject,
+            'latest_snippet': latest_emails[thread['latest_email_id']].snippet,
+        }
+        for thread in threads
+    ]
     
     context = {
         'query': query,
         'threads': thread_list,
-        'total_emails': len(emails),
+        'total_emails': emails.count(),
         'total_threads': len(thread_list),
         'page_title': f'Search: {query}',
         'active_page': 'search'
@@ -277,7 +289,7 @@ def search_emails(request):
 def email_detail_view(request, email_id):
     """Display individual email detail"""
     # Check authentication
-    if not is_authenticated():
+    if not is_authenticated(user=request.user):
         return render(request, 'gmail_integration/auth_required.html')
     
     email = get_object_or_404(Email, id=email_id)
@@ -292,9 +304,9 @@ def email_detail_view(request, email_id):
 
 @login_required
 def force_sync_view(request):
-    """Manually force a full sync (useful for testing)"""
-    sync_all_emails()
-    messages.success(request, "Gmail sync completed successfully.")
+    """Manually force a sync in the background"""
+    async_task(sync_emails_task)
+    messages.success(request, "Gmail sync started in the background.")
     return redirect('inbox')
 
 

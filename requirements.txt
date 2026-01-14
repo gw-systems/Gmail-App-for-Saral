@@ -21,3 +21,4 @@ isort
 mypy
 pytest-django
 pytest-cov
+django-q2

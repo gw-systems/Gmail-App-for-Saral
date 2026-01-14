@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     # Local apps
     "gmail_integration",
     "accounts",
+    "django_q",
 ]
 
 MIDDLEWARE = [
@@ -245,6 +246,20 @@ LOGGING = {
             'propagate': True,
         },
     },
+}
+
+# Django-Q2 Configuration
+Q_CLUSTER = {
+    'name': 'gmail-integration-cluster',
+    'workers': 4,
+    'recycle': 500,
+    'timeout': 300,  # 5 minutes
+    'retry': 360,  # 6 minutes (must be > timeout)
+    'compress': True,
+    'save_limit': 250,
+    'queue_limit': 50,
+    'label': 'Django Q',
+    'orm': 'default',  # Use Django ORM as the broker
 }
 
 # Create logs directory if it doesn't exist

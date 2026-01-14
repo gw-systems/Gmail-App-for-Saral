@@ -9,7 +9,10 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+import logging
 from ..models import GmailToken
+
+logger = logging.getLogger(__name__)
 
 
 def get_gmail_service(user=None, account_email=None):
@@ -30,17 +33,7 @@ def get_gmail_service(user=None, account_email=None):
         # Get any active token for user
         token_obj = GmailToken.objects.filter(user=user, is_active=True).first()
     else:
-        # Fallback to old behavior (deprecated)
-        token_data = GmailToken.get_token()
-        if not token_data:
-            return None
-        creds = Credentials.from_authorized_user_info(token_data, settings.GMAIL_SCOPES)
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            GmailToken.save_token(json.loads(creds.to_json()))
-        if not creds or not creds.valid:
-            return None
-        return build('gmail', 'v1', credentials=creds)
+        return None
     
     if not token_obj:
         return None
@@ -58,7 +51,7 @@ def get_gmail_service(user=None, account_email=None):
             token_obj.token_data = json.loads(creds.to_json())
             token_obj.save()
         except Exception as e:
-            print(f"Error refreshing token for {token_obj.email_account}: {e}")
+            logger.error(f"Error refreshing token for {token_obj.email_account}: {e}")
             return None
     
     if not creds or not creds.valid:
@@ -104,24 +97,24 @@ def handle_oauth_callback(authorization_response, state=None, user=None):
         (success: bool, email_account: str or None)
     """
     try:
-        print(f"[DEBUG] Authorization response URL: {authorization_response}")
-        print(f"[DEBUG] State provided: {state}")
-        print(f"[DEBUG] User: {user.username if user else 'None'}")
+        logger.debug(f"Authorization response URL: {authorization_response}")
+        logger.debug(f"State provided: {state}")
+        logger.debug(f"User: {user.username if user else 'None'}")
         
         # Parse the URL to extract the authorization code
         from urllib.parse import urlparse, parse_qs
         parsed_url = urlparse(authorization_response)
         query_params = parse_qs(parsed_url.query)
         
-        print(f"[DEBUG] Parsed query params: {query_params}")
+        logger.debug(f"Parsed query params: {query_params}")
         
         # Extract the code
         if 'code' not in query_params:
-            print("[ERROR] No authorization code found in callback URL")
+            logger.error("No authorization code found in callback URL")
             return False, None
         
         auth_code = query_params['code'][0]
-        print(f"[DEBUG] Extracted authorization code: {auth_code[:20]}...")
+        logger.debug(f"Extracted authorization code: {auth_code[:20]}...")
         
         # Create flow
         flow = Flow.from_client_secrets_file(
@@ -130,12 +123,10 @@ def handle_oauth_callback(authorization_response, state=None, user=None):
             redirect_uri=settings.GMAIL_REDIRECT_URI
         )
         
-        print("[DEBUG] Flow created, fetching token...")
-        
         # Fetch token using the authorization code
         flow.fetch_token(code=auth_code)
         
-        print("[DEBUG] Token fetched successfully!")
+        logger.info("Token fetched successfully!")
         
         # Get credentials
         creds = flow.credentials
@@ -146,7 +137,7 @@ def handle_oauth_callback(authorization_response, state=None, user=None):
         profile = service.users().getProfile(userId='me').execute()
         email_account = profile.get('emailAddress')
         
-        print(f"[DEBUG] Gmail account: {email_account}")
+        logger.info(f"Gmail account: {email_account}")
         
         # Save token to database with user association
         if user:
@@ -155,21 +146,15 @@ def handle_oauth_callback(authorization_response, state=None, user=None):
                 email_account=email_account,
                 token_data=token_data
             )
-            print(f"[DEBUG] Token saved for user {user.username}, account {email_account}")
+            logger.info(f"Token saved for user {user.username}, account {email_account}")
         else:
-            # Fallback to old behavior (deprecated)
-            GmailToken.save_token(token_data)
-            print("[DEBUG] Token saved (old method, no user association)")
+            logger.error("No user provided for OAuth callback. Cannot save token.")
+            return False, None
         
         return True, email_account
         
     except Exception as e:
-        import traceback
-        print(f"\n{'!'*60}")
-        print(f"[ERROR] OAuth callback failed: {e}")
-        print(f"[ERROR] Full traceback:")
-        traceback.print_exc()
-        print(f"{'!'*60}\n")
+        logger.exception(f"OAuth callback failed: {e}")
         return False, None
 
 
@@ -203,20 +188,7 @@ def refresh_token_if_needed(user=None, account_email=None):
     elif user:
         token_obj = GmailToken.objects.filter(user=user, is_active=True).first()
     else:
-        # Old method fallback
-        token_data = GmailToken.get_token()
-        if not token_data:
-            return False
-        creds = Credentials.from_authorized_user_info(token_data, settings.GMAIL_SCOPES)
-        if creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-                GmailToken.save_token(json.loads(creds.to_json()))
-                return True
-            except Exception as e:
-                print(f"Error refreshing token: {e}")
-                return False
-        return creds.valid
+        return False
     
     if not token_obj:
         return False
@@ -231,7 +203,7 @@ def refresh_token_if_needed(user=None, account_email=None):
             token_obj.save()
             return True
         except Exception as e:
-            print(f"Error refreshing token for {token_obj.email_account}: {e}")
+            logger.error(f"Error refreshing token for {token_obj.email_account}: {e}")
             return False
     
     return creds.valid

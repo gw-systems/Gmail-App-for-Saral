@@ -8,8 +8,11 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
 from django.utils import timezone
+import logging
 from .gmail_auth import get_gmail_service
 from ..models import Email, SyncStatus
+
+logger = logging.getLogger(__name__)
 
 
 def parse_email_headers(headers):
@@ -70,7 +73,7 @@ def decode_base64(data):
             data += '=' * (4 - missing_padding)
         return base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
     except Exception as e:
-        print(f"Error decoding base64: {e}")
+        logger.error(f"Error decoding base64: {e}")
         return ""
 
 
@@ -143,7 +146,7 @@ def parse_email_message(message_data):
         if email_date.tzinfo is None:
             email_date = timezone.make_aware(email_date)
     except Exception as e:
-        print(f"Error parsing date '{date_str}': {e}")
+        logger.error(f"Error parsing date '{date_str}': {e}")
         email_date = timezone.now()
     
     # Parse body
@@ -205,7 +208,7 @@ def fetch_email_detail(service, message_id):
         ).execute()
         return message
     except Exception as e:
-        print(f"Error fetching email {message_id}: {e}")
+        logger.error(f"Error fetching email {message_id}: {e}")
         return None
 
 
@@ -223,7 +226,7 @@ def fetch_emails(service, account_email, label='INBOX', max_results=100):
         Number of emails fetched
     """
     if not service:
-        print(f"No service provided for {account_email}")
+        logger.warning(f"No service provided for {account_email}")
         return 0
     
     try:
@@ -237,10 +240,10 @@ def fetch_emails(service, account_email, label='INBOX', max_results=100):
         messages = results.get('messages', [])
         
         if not messages:
-            print(f"No messages found in {label} for {account_email}")
+            logger.info(f"No messages found in {label} for {account_email}")
             return 0
         
-        print(f"Fetching {len(messages)} emails from {label} for {account_email}...")
+        logger.info(f"Fetching {len(messages)} emails from {label} for {account_email}...")
         
         emails_saved = 0
         for msg in messages:
@@ -259,14 +262,14 @@ def fetch_emails(service, account_email, label='INBOX', max_results=100):
                 emails_saved += 1
                 
                 if created:
-                    print(f"  ✓ Saved: {email_data['subject'][:50]}")
+                    logger.debug(f"  ✓ Saved: {email_data['subject'][:50]}")
                 else:
-                    print(f"  ↻ Updated: {email_data['subject'][:50]}")
+                    logger.debug(f"  ↻ Updated: {email_data['subject'][:50]}")
         
         return emails_saved
         
     except Exception as e:
-        print(f"Error fetching emails for {account_email}: {e}")
+        logger.error(f"Error fetching emails for {account_email}: {e}")
         return 0
 
 
@@ -278,13 +281,13 @@ def sync_all_emails(max_inbox=100, max_sent=100):
     from ..models import GmailToken
     from .gmail_auth import get_gmail_service
     
-    print("Starting multi-account email sync...")
+    logger.info("Starting multi-account email sync...")
     
     # Get all active tokens
     active_tokens = GmailToken.get_all_active_tokens()
     
     if not active_tokens.exists():
-        print("⚠️  No active Gmail accounts found. Please connect a Gmail account first.")
+        logger.warning("⚠️  No active Gmail accounts found. Please connect a Gmail account first.")
         return {'total': 0, 'accounts': {}}
     
     sync_results = {}
@@ -292,15 +295,13 @@ def sync_all_emails(max_inbox=100, max_sent=100):
     
     for token in active_tokens:
         account_email = token.email_account
-        print(f"\n{'='*60}")
-        print(f"Syncing account: {account_email}")
-        print(f"{'='*60}")
+        logger.info(f"Syncing account: {account_email}")
         
         # Get service for this specific account
         service = get_gmail_service(account_email=account_email)
         
         if not service:
-            print(f"⚠️  Could not get service for {account_email}")
+            logger.error(f"⚠️  Could not get service for {account_email}")
             sync_results[account_email] = {'inbox': 0, 'sent': 0, 'total': 0, 'error': 'Service unavailable'}
             continue
         
@@ -317,7 +318,7 @@ def sync_all_emails(max_inbox=100, max_sent=100):
             profile = service.users().getProfile(userId='me').execute()
             history_id = profile.get('historyId', '')
         except Exception as e:
-            print(f"Error getting history ID for {account_email}: {e}")
+            logger.error(f"Error getting history ID for {account_email}: {e}")
         
         # Create sync record for this account
         SyncStatus.create_sync_record(
@@ -334,11 +335,9 @@ def sync_all_emails(max_inbox=100, max_sent=100):
             'history_id': history_id
         }
         
-        print(f"✓ {account_email}: {inbox_count} inbox, {sent_count} sent")
+        logger.info(f"✓ {account_email}: {inbox_count} inbox, {sent_count} sent")
     
-    print(f"\n{'='*60}")
-    print(f"✓ Multi-account sync complete: {total_synced} total emails across {len(sync_results)} accounts")
-    print(f"{'='*60}\n")
+    logger.info(f"Multi-account sync complete: {total_synced} total emails across {len(sync_results)} accounts")
     
     return {
         'total': total_synced,
@@ -352,7 +351,7 @@ def check_for_new_emails():
     Simplified version - just triggers full sync for all accounts
     Returns True if sync was performed
     """
-    print("Checking for new emails across all accounts...")
+    logger.info("Checking for new emails across all accounts...")
     result = sync_all_emails()
     return result['total'] > 0
 
@@ -403,8 +402,8 @@ def send_email(service, user_id, message):
     """
     try:
         sent_message = service.users().messages().send(userId=user_id, body=message).execute()
-        print(f"Message Id: {sent_message['id']}")
+        logger.info(f"Email sent. Message Id: {sent_message['id']}")
         return sent_message
     except Exception as e:
-        print(f"An error occurred while sending email: {e}")
+        logger.error(f"An error occurred while sending email: {e}")
         return None

@@ -7,7 +7,7 @@ import json
 class GmailToken(models.Model):
     """Store OAuth tokens for Gmail API authentication - Multi-Account Support"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, help_text="ERP user who owns this token")
-    email_account = models.EmailField(unique=True, help_text="Gmail address (e.g., support@godamwale.com)")
+    email_account = models.EmailField(db_index=True, help_text="Gmail address (e.g., support@godamwale.com)")
     token_data = models.JSONField(help_text="Stores access token, refresh token, and expiry")
     is_active = models.BooleanField(default=True, help_text="Whether this account is actively syncing")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -21,23 +21,7 @@ class GmailToken(models.Model):
     def __str__(self):
         return f"{self.email_account} (User: {self.user.username})"
     
-    @classmethod
-    def get_token(cls):
-        """Get the current token (single user app) - DEPRECATED for multi-account"""
-        token = cls.objects.first()
-        if token:
-            return token.token_data
-        return None
     
-    @classmethod
-    def save_token(cls, token_data):
-        """Save or update token - DEPRECATED for multi-account"""
-        token = cls.objects.first()
-        if token:
-            token.token_data = token_data
-            token.save()
-        else:
-            cls.objects.create(token_data=token_data)
     
     @classmethod
     def get_token_for_user(cls, user):
