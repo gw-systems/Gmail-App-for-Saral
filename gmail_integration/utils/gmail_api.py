@@ -184,15 +184,71 @@ def parse_email_message(message_data):
     }
 
 
+def get_or_create_contact(email_addr, name=''):
+    """Helper to get or create a contact"""
+    if not email_addr:
+        return None
+    
+    from ..models import Contact
+    contact, created = Contact.objects.get_or_create(
+        email=email_addr,
+        defaults={'name': name}
+    )
+    # Update name if we have a new one and the old one was empty
+    if not created and name and not contact.name:
+        contact.name = name
+        contact.save()
+    return contact
+
+
 def save_email_to_db(email_data):
     """
     Save or update email in database
     Returns the Email object
     """
+    # 1. Handle Sender Contact
+    sender_email = email_data.get('sender', '')
+    sender_name = email_data.get('sender_name', '')
+    sender_contact = get_or_create_contact(sender_email, sender_name)
+    
+    # Add to defaults/data
+    email_data['sender_contact'] = sender_contact
+    
+    # 2. Extract M2M data (recipients) before saving, as they can't be in defaults for update_or_create
+    # (Note: update_or_create filters by kwargs and updates defaults. We need to be careful what we pass)
+    
+    # Prepare defaults - exclude keys that aren't fields or are handled separately
+    defaults = email_data.copy()
+    
+    # 3. Save Email
     email_obj, created = Email.objects.update_or_create(
         gmail_id=email_data['gmail_id'],
-        defaults=email_data
+        defaults=defaults
     )
+    
+    # 4. Handle Recipients (M2M) - post save
+    # Collect all recipient emails (To, CC, BCC)
+    all_recipients = []
+    
+    # Helper to parse comma-sep strings back to lists
+    def parse_to_list(recip_str):
+        if not recip_str: return []
+        return [e.strip() for e in recip_str.split(',') if e.strip()]
+
+    all_recipients.extend(parse_to_list(email_data.get('recipient', '')))
+    all_recipients.extend(parse_to_list(email_data.get('cc', '')))
+    all_recipients.extend(parse_to_list(email_data.get('bcc', '')))
+    
+    # Create contacts and link
+    if all_recipients:
+        contact_objs = []
+        for email_addr in set(all_recipients): # dedup
+            c = get_or_create_contact(email_addr)
+            if c:
+                contact_objs.append(c)
+        
+        email_obj.recipients.set(contact_objs)
+        
     return email_obj, created
 
 

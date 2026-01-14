@@ -51,12 +51,34 @@ class GmailToken(models.Model):
         return cls.objects.filter(is_active=True)
 
 
+class Contact(models.Model):
+    """Store contact details for senders and recipients"""
+    email = models.EmailField(unique=True, db_index=True)
+    name = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} <{self.email}>" if self.name else self.email
+
+    class Meta:
+        verbose_name = "Contact"
+        verbose_name_plural = "Contacts"
+        ordering = ['email']
+
+
 class Email(models.Model):
     """Store email messages from Gmail - Multi-Account Support"""
     account_email = models.EmailField(max_length=255, db_index=True, help_text="Gmail account this email belongs to")
     gmail_id = models.CharField(max_length=255, unique=True, help_text="Gmail message ID")
     thread_id = models.CharField(max_length=255, db_index=True, help_text="Gmail thread ID")
     subject = models.TextField(blank=True)
+    
+    # Relationships
+    sender_contact = models.ForeignKey(Contact, on_delete=models.SET_NULL, null=True, related_name='sent_emails', help_text="Link to Sender Contact")
+    recipients = models.ManyToManyField(Contact, related_name='received_emails', blank=True, help_text="All recipients (To, CC, BCC)")
+    
+    # Legacy fields (keeping for now, but deprecated)
     sender = models.EmailField(max_length=255)
     sender_name = models.CharField(max_length=255, blank=True, help_text="Sender's display name")
     recipient = models.EmailField(max_length=255, blank=True)

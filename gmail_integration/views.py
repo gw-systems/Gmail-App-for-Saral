@@ -1,5 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpRequest
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from .models import Email, GmailToken
@@ -12,7 +12,7 @@ from .tasks import sync_emails_task
 logger = logging.getLogger(__name__)
 
 
-def home(request):
+def home(request: HttpRequest) -> HttpResponse:
     """Home page - redirect to inbox or login"""
     if request.user.is_authenticated:
         return redirect('inbox')
@@ -20,7 +20,7 @@ def home(request):
 
 
 @login_required
-def start_auth(request):
+def start_auth(request: HttpRequest) -> HttpResponse:
     """Start OAuth flow for Gmail authentication"""
     try:
         auth_url, state = initiate_oauth_flow()
@@ -33,7 +33,7 @@ def start_auth(request):
 
 
 @login_required
-def oauth2callback(request):
+def oauth2callback(request: HttpRequest) -> HttpResponse:
     """Handle OAuth callback from Google"""
     try:
         # Get the full callback URL
@@ -92,7 +92,7 @@ def oauth2callback(request):
 
 
 @login_required
-def inbox_view(request):
+def inbox_view(request: HttpRequest) -> HttpResponse:
     """Display all emails (inbox + sent) grouped by thread with multi-account support"""
     from .services import EmailService
     
@@ -121,13 +121,13 @@ def inbox_view(request):
 
 
 @login_required
-def sent_view(request):
+def sent_view(request: HttpRequest) -> HttpResponse:
     """Redirect to inbox (all emails shown there now)"""
     return redirect('inbox')
 
 
 @login_required
-def thread_view(request, thread_id):
+def thread_view(request: HttpRequest, thread_id: str) -> HttpResponse:
     """
     Display all emails in a thread (conversation view)
     """
@@ -156,7 +156,7 @@ def thread_view(request, thread_id):
 
 
 @login_required
-def search_emails(request):
+def search_emails(request: HttpRequest) -> HttpResponse:
     """
     Search emails by sender/recipient name or email address
     Results are grouped by thread
@@ -194,7 +194,7 @@ def search_emails(request):
 
 
 @login_required
-def email_detail_view(request, email_id):
+def email_detail_view(request: HttpRequest, email_id: int) -> HttpResponse:
     """Display individual email detail"""
     # Check authentication
     if not is_authenticated(user=request.user):
@@ -211,7 +211,7 @@ def email_detail_view(request, email_id):
 
 
 @login_required
-def force_sync_view(request):
+def force_sync_view(request: HttpRequest) -> HttpResponse:
     """Manually force a sync in the background"""
     async_task(sync_emails_task)
     messages.success(request, "Gmail sync started in the background.")
@@ -219,7 +219,7 @@ def force_sync_view(request):
 
 
 @login_required
-def compose_email_view(request):
+def compose_email_view(request: HttpRequest) -> HttpResponse:
     """
     Handle composing and sending emails.
     Admin can send from any account.

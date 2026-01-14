@@ -1,14 +1,21 @@
-from django.db.models import Q, Count, Max, Subquery, OuterRef
+from typing import List, Dict, Any, Tuple, Optional
+from django.db.models import Q, Count, Max, Subquery, OuterRef, QuerySet
+from django.contrib.auth.models import User, AbstractBaseUser, AnonymousUser
 from .models import Email, GmailToken
 
 class EmailService:
     @staticmethod
-    def get_threads_for_user(user, account_filter='all', search_query=None):
+    def get_threads_for_user(
+        user: User | AbstractBaseUser | AnonymousUser, 
+        account_filter: str = 'all', 
+        search_query: Optional[str] = None
+    ) -> Tuple[List[Dict[str, Any]], QuerySet]:
         """
         Retrieves email threads for a user, applying permissions, filters, and search.
         Returns a list of dictionaries representing threads.
         """
         # 1. Determine accessible accounts
+        available_accounts: QuerySet
         if user.is_staff:
             # Admins see all active accounts
             available_accounts = GmailToken.objects.filter(
@@ -57,7 +64,7 @@ class EmailService:
         latest_emails = Email.objects.in_bulk(latest_email_ids)
         
         # 6. Build Result List
-        thread_list = []
+        thread_list: List[Dict[str, Any]] = []
         for thread in threads:
             email_id = thread['latest_email_id']
             if email_id in latest_emails:
