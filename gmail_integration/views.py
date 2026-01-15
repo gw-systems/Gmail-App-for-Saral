@@ -129,6 +129,17 @@ def thread_view(request: HttpRequest, thread_id: str) -> HttpResponse:
     # Get thread metadata
     first_email = emails.first()
     
+    # Add unique attachments to each email to avoid duplicates in template
+    for email in emails:
+        # Get unique attachments by filename
+        seen_filenames = set()
+        unique_attachments = []
+        for att in email.attachments.all():
+            if att.filename not in seen_filenames:
+                unique_attachments.append(att)
+                seen_filenames.add(att.filename)
+        email.unique_attachments = unique_attachments
+    
     context = {
         'emails': emails,
         'thread_id': thread_id,
@@ -252,3 +263,45 @@ def compose_email_view(request: HttpRequest) -> HttpResponse:
         'title': 'Compose Email'
     }
     return render(request, 'gmail_integration/compose_email.html', context)
+
+
+@login_required
+def download_attachment(request: HttpRequest, attachment_id: int) -> HttpResponse:
+    """
+    Download email attachment with permission check
+    """
+    from .models import Attachment, GmailToken
+    from django.http import FileResponse, Http404
+    
+    # Get attachment
+    try:
+        attachment = Attachment.objects.select_related('email').get(id=attachment_id)
+    except Attachment.DoesNotExist:
+        raise Http404("Attachment not found")
+    
+    # Permission check: user must have access to the email's account
+    email = attachment.email
+    account_email = email.account_email
+    
+    # Check if user has access to this account
+    if not request.user.is_staff:
+        # Regular users can only access their own accounts
+        has_access = GmailToken.objects.filter(
+            user=request.user,
+            email_account=account_email,
+            is_active=True
+        ).exists()
+        
+        if not has_access:
+            return HttpResponse("Permission denied", status=403)
+    
+    # Serve file
+    try:
+        response = FileResponse(attachment.file.open('rb'), content_type=attachment.mime_type)
+        response['Content-Disposition'] = f'attachment; filename="{attachment.filename}"'
+        logger.info(f"User {request.user.username} downloaded attachment: {attachment.filename}")
+        return response
+    except Exception as e:
+        logger.error(f"Error serving attachment {attachment_id}: {e}")
+        raise Http404("File not found")
+

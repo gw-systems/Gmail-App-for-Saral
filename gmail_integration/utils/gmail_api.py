@@ -200,6 +200,9 @@ def parse_email_message(message_data):
             # Fallback: escape everything if sanitization fails
             body_html = bleach.clean(body_html, tags=[], strip=True)
 
+    # Extract attachment metadata
+    attachments_metadata = extract_attachment_metadata(payload)
+
     return {
         'gmail_id': message_id,
         'thread_id': thread_id,
@@ -216,7 +219,60 @@ def parse_email_message(message_data):
         'labels': labels,
         'is_read': is_read,
         'has_attachments': has_attachments,
+        'attachments_metadata': attachments_metadata,
     }
+
+
+def extract_attachment_metadata(payload):
+    """
+    Extract attachment metadata from email payload
+    Returns list of dicts with attachment info
+    """
+    attachments = []
+    
+    def process_parts(parts):
+        for part in parts:
+            # Check if part has filename (is an attachment)
+            filename = part.get('filename', '')
+            if filename and 'body' in part:
+                attachment_id = part['body'].get('attachmentId')
+                if attachment_id:
+                    attachments.append({
+                        'attachment_id': attachment_id,
+                        'filename': filename,
+                        'mime_type': part.get('mimeType', 'application/octet-stream'),
+                        'size': part['body'].get('size', 0)
+                    })
+            
+            # Recursively process nested parts
+            if 'parts' in part:
+                process_parts(part['parts'])
+    
+    if 'parts' in payload:
+        process_parts(payload['parts'])
+    
+    return attachments
+
+
+def download_attachment(service, message_id, attachment_id):
+    """
+    Download attachment from Gmail API
+    Returns attachment data as bytes
+    """
+    try:
+        attachment = service.users().messages().attachments().get(
+            userId='me',
+            messageId=message_id,
+            id=attachment_id
+        ).execute()
+        
+        # Decode base64 data
+        data = attachment['data']
+        file_data = base64.urlsafe_b64decode(data)
+        return file_data
+    except Exception as e:
+        logger.error(f"Error downloading attachment {attachment_id}: {e}")
+        return None
 
 
 def get_or_create_contact(email_addr, name=''):
@@ -236,10 +292,14 @@ def get_or_create_contact(email_addr, name=''):
     return contact
 
 
-def save_email_to_db(email_data):
+def save_email_to_db(email_data, service=None):
     """
     Save or update email in database
     Returns the Email object
+    
+    Args:
+        email_data: Parsed email data dict
+        service: Gmail API service (needed for downloading attachments)
     """
     # 1. Handle Sender Contact
     sender_email = email_data.get('sender_email', '')
@@ -289,6 +349,46 @@ def save_email_to_db(email_data):
                 contact_objs.append(c)
         
         email_obj.recipients.set(contact_objs)
+    
+    # 5. Handle Attachments
+    attachments_metadata = email_data.get('attachments_metadata', [])
+    if attachments_metadata and service:
+        from ..models import Attachment
+        from django.core.files.base import ContentFile
+        
+        for att_meta in attachments_metadata:
+            # Check if attachment already exists
+            existing = Attachment.objects.filter(
+                email=email_obj,
+                gmail_attachment_id=att_meta['attachment_id']
+            ).first()
+            
+            if not existing:
+                # Download attachment
+                file_data = download_attachment(
+                    service,
+                    email_data['gmail_id'],
+                    att_meta['attachment_id']
+                )
+                
+                if file_data:
+                    # Create Attachment object
+                    attachment = Attachment(
+                        email=email_obj,
+                        gmail_attachment_id=att_meta['attachment_id'],
+                        filename=att_meta['filename'],
+                        mime_type=att_meta['mime_type'],
+                        size_bytes=att_meta['size']
+                    )
+                    
+                    # Save file
+                    attachment.file.save(
+                        att_meta['filename'],
+                        ContentFile(file_data),
+                        save=True
+                    )
+                    
+                    logger.info(f"Downloaded attachment: {att_meta['filename']} ({att_meta['size']} bytes)")
         
     return email_obj, created
 
@@ -358,8 +458,8 @@ def fetch_emails(service, account_email, label='INBOX', max_results=100):
                 # ADD ACCOUNT EMAIL TO DATA
                 email_data['account_email'] = account_email
                 
-                # Save to database
-                email_obj, created = save_email_to_db(email_data)
+                # Save to database (pass service for attachment downloads)
+                email_obj, created = save_email_to_db(email_data, service=service)
                 emails_saved += 1
                 
                 # Log occasionally to avoid spamming

@@ -13,6 +13,8 @@ drf-spectacular
 
 # Database
 psycopg2-binary
+dj-database-url
+django-filter
 
 # Code Quality (Dev)
 black

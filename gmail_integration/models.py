@@ -131,6 +131,54 @@ class Email(models.Model):
         return []
 
 
+class Attachment(models.Model):
+    """Store email attachments"""
+    email = models.ForeignKey(Email, on_delete=models.CASCADE, related_name='attachments', help_text="Email this attachment belongs to")
+    gmail_attachment_id = models.CharField(max_length=255, help_text="Gmail's attachment ID")
+    filename = models.CharField(max_length=255, help_text="Original filename")
+    mime_type = models.CharField(max_length=100, help_text="File MIME type (e.g., application/pdf)")
+    size_bytes = models.IntegerField(help_text="File size in bytes")
+    file = models.FileField(upload_to='attachments/%Y/%m/%d/', help_text="Stored file")
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = "Attachment"
+        verbose_name_plural = "Attachments"
+        ordering = ['filename']
+        indexes = [
+            models.Index(fields=['email', 'filename']),
+        ]
+    
+    def __str__(self):
+        return f"{self.filename} ({self.get_size_display()})"
+    
+    def get_size_display(self):
+        """Return human-readable file size"""
+        size = self.size_bytes
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} TB"
+    
+    @property
+    def icon_class(self):
+        """Return icon class based on MIME type"""
+        if 'pdf' in self.mime_type:
+            return '📄'
+        elif 'image' in self.mime_type:
+            return '🖼️'
+        elif 'word' in self.mime_type or 'document' in self.mime_type:
+            return '📝'
+        elif 'excel' in self.mime_type or 'spreadsheet' in self.mime_type:
+            return '📊'
+        elif 'zip' in self.mime_type or 'compressed' in self.mime_type:
+            return '📦'
+        else:
+            return '📎'
+
+
+
 class SyncStatus(models.Model):
     """Track Gmail sync status and history - Multi-Account Support"""
     account_email = models.EmailField(max_length=255, db_index=True, help_text="Gmail account synced", null=True, blank=True)

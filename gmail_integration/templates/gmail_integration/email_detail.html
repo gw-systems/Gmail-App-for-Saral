@@ -116,8 +116,19 @@
 
             {% if email.has_attachments %}
             <div class="email-meta-item">
-                <span class="email-meta-label">📎</span>
-                <span class="email-meta-value">Has attachments</span>
+                <span class="email-meta-label">📎 Attachments:</span>
+                <div class="email-meta-value">
+                    {% for attachment in email.attachments.all %}
+                    <div style="margin-bottom: 8px;">
+                        <span>{{ attachment.icon_class }}</span>
+                        <a href="{% url 'download_attachment' attachment.id %}"
+                            style="color: #667eea; text-decoration: none;">
+                            <strong>{{ attachment.filename }}</strong>
+                        </a>
+                        <span style="color: #6c757d; font-size: 0.9em;">({{ attachment.get_size_display }})</span>
+                    </div>
+                    {% endfor %}
+                </div>
             </div>
             {% endif %}
         </div>
