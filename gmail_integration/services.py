@@ -149,7 +149,12 @@ class EmailService:
                 logger.warning(f"User {user.username} prevented from sending as {sender_email}")
                 return False
         
-        service = get_gmail_service(account_email=sender_email)
+        # For superusers, we don't restrict to their own token - we find ANY valid token for the account
+        # For regular users, strict ownership check applies
+        if user.is_superuser:
+            service = get_gmail_service(user=None, account_email=sender_email)
+        else:
+            service = get_gmail_service(user=user, account_email=sender_email)
         if not service:
             logger.error(f"Could not authenticate with {sender_email}")
             return False

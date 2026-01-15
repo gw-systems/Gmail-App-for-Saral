@@ -634,5 +634,14 @@ def send_email(service, user_id, message):
         logger.info(f"Email sent. Message Id: {sent_message['id']}")
         return sent_message
     except Exception as e:
+        # Check for 403 Insufficient Permission
+        error_str = str(e)
+        if '403' in error_str and 'insufficient authentication scopes' in error_str:
+            logger.error(f"FATAL PERMISSION ERROR: The token does not have 'gmail.send' scope allowed by Google.")
+            logger.error(f"1. Go to Google Cloud Console > APIs & Services > OAuth consent screen")
+            logger.error(f"2. Ensure '.../auth/gmail.send' is added to scopes")
+            logger.error(f"3. If app is in Testing mode, user must be in Test Users list")
+            logger.error(f"4. User MUST click checkbox 'Send email on your behalf' during consent")
+        
         logger.error(f"An error occurred while sending email: {e}")
         return None

@@ -8,7 +8,8 @@ class GmailToken(models.Model):
     """Store OAuth tokens for Gmail API authentication - Multi-Account Support"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, help_text="ERP user who owns this token")
     email_account = models.EmailField(db_index=True, help_text="Gmail address (e.g., support@godamwale.com)")
-    token_data = models.JSONField(help_text="Stores access token, refresh token, and expiry")
+    token_data = models.JSONField(help_text="Stores access token, refresh token, and expiry", null=True, blank=True)
+    encrypted_token_data = models.TextField(help_text="Encrypted token data (GDPR compliant)", null=True, blank=True)
     is_active = models.BooleanField(default=True, help_text="Whether this account is actively syncing")
     account_color = models.CharField(max_length=50, default='account-gray', help_text="CSS class for account color (e.g., account-purple)")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -22,27 +23,52 @@ class GmailToken(models.Model):
     def __str__(self):
         return f"{self.email_account} (User: {self.user.username})"
     
+    def get_decrypted_token(self):
+        """Get decrypted token data (GDPR compliant)"""
+        from gmail_integration.utils.encryption import EncryptionUtils
+        
+        # Prefer encrypted data if available
+        if self.encrypted_token_data:
+            decrypted = EncryptionUtils.decrypt(self.encrypted_token_data)
+            if decrypted:
+                return decrypted
+        
+        # Fallback to plaintext (for migration period)
+        if self.token_data:
+            return self.token_data
+        
+        return None
     
+    def set_encrypted_token(self, token_data):
+        """Encrypt and save token data (GDPR compliant)"""
+        from gmail_integration.utils.encryption import EncryptionUtils
+        
+        if token_data:
+            self.encrypted_token_data = EncryptionUtils.encrypt(token_data)
+            # Keep plaintext for backward compatibility during migration
+            self.token_data = token_data
     
     @classmethod
     def get_token_for_user(cls, user):
         """Get active Gmail token for a specific user"""
         token = cls.objects.filter(user=user, is_active=True).first()
         if token:
-            return token.token_data
+            return token.get_decrypted_token()
         return None
     
     @classmethod
     def save_token_for_user(cls, user, email_account, token_data):
-        """Save or update token for a specific user"""
+        """Save or update token for a specific user (with encryption)"""
         token, created = cls.objects.update_or_create(
             user=user,
             email_account=email_account,
             defaults={
-                'token_data': token_data,
                 'is_active': True,
             }
         )
+        # Use encryption method
+        token.set_encrypted_token(token_data)
+        token.save()
         return token
     
     @classmethod

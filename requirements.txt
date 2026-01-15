@@ -25,3 +25,4 @@ pytest-django
 pytest-cov
 django-q2
 bleach
+cryptography>=41.0.0

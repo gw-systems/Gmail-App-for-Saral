@@ -35,6 +35,17 @@ if not SECRET_KEY and DEBUG:
 elif not SECRET_KEY:
     raise ValueError("FATAL: DJANGO_SECRET_KEY must be set in production! App cannot start.")
 
+# Encryption Key for GDPR Compliance (Sensitive Data)
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    if DEBUG:
+        # In development, generate a temporary key (WARNING: tokens will be invalid after restart)
+        from cryptography.fernet import Fernet
+        ENCRYPTION_KEY = Fernet.generate_key()
+        print("WARNING: Using temporary encryption key. Set ENCRYPTION_KEY in .env for persistence.")
+    else:
+        raise ValueError("FATAL: ENCRYPTION_KEY must be set in production! GDPR compliance requires secure storage.")
+
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 

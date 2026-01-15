@@ -26,8 +26,11 @@ def get_gmail_service(user=None, account_email=None):
     Returns:
         Gmail service object or None if not authenticated
     """
-    if account_email:
-        # Get token by exact account email
+    if user and account_email:
+        # Get token for specific user and account
+        token_obj = GmailToken.objects.filter(user=user, email_account=account_email, is_active=True).first()
+    elif account_email:
+        # Get token by exact account email (first available)
         token_obj = GmailToken.objects.filter(email_account=account_email, is_active=True).first()
     elif user:
         # Get any active token for user
@@ -137,7 +140,23 @@ def handle_oauth_callback(authorization_response, state=None, user=None):
         profile = service.users().getProfile(userId='me').execute()
         email_account = profile.get('emailAddress')
         
-        logger.info(f"Gmail account: {email_account}")
+        # Validate that all required scopes were granted
+        required_scopes = set(settings.GMAIL_SCOPES)
+        granted_scopes = set(creds.scopes) if creds.scopes else set()
+        
+        # Check if we have all required scopes (or at least the critical ones)
+        # Note: Google sometimes returns full URLs or short names depending on version
+        # So we ensure the 'send' scope is present if we asked for it.
+        
+        missing_scopes = [s for s in required_scopes if s not in granted_scopes]
+        
+        # Special check for 'send' scope if it's required
+        send_scope = 'https://www.googleapis.com/auth/gmail.send'
+        if send_scope in required_scopes and send_scope not in granted_scopes:
+            logger.warning(f"User {user.username} authenticated but did NOT grant 'gmail.send' permission.")
+            return False, "Permission denied: You must grant 'Send email' permission on the Google consent screen."
+            
+        logger.info(f"Gmail account: {email_account} (Scopes: {granted_scopes})")
         
         # Save token to database with user association
         if user:
