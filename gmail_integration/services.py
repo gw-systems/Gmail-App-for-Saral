@@ -2,6 +2,47 @@ from typing import List, Dict, Any, Tuple, Optional
 from django.db.models import Q, Count, Max, Subquery, OuterRef, QuerySet
 from django.contrib.auth.models import User, AbstractBaseUser, AnonymousUser
 from .models import Email, GmailToken
+from .utils.gmail_auth import handle_oauth_callback
+import logging
+
+logger = logging.getLogger(__name__)
+
+class AuthService:
+    """
+    Service to handle authentication logic separately from views
+    """
+    @staticmethod
+    def handle_oauth_callback(request_uri, session_state, session_user_id, current_user):
+        """
+        Validate and process the OAuth callback.
+        
+        Args:
+            request_uri: The full callback URL
+            session_state: State stored in session
+            session_user_id: User ID stored in session
+            current_user: The currently logged in user instance
+            
+        Returns:
+            tuple: (success, result_message_or_email)
+        """
+        # 1. Verify session validity
+        if not session_user_id or session_user_id != current_user.id:
+            logger.warning(f"Session mismatch: stored={session_user_id}, current={current_user.id}")
+            return False, "Invalid session. Please try again."
+        
+        logger.info(f"OAuth callback processing for user: {current_user.username}")
+        
+        # 2. Delegate to the low-level utility to exchange code for token
+        success, email_account = handle_oauth_callback(
+            request_uri, 
+            session_state, 
+            user=current_user
+        )
+        
+        if success:
+            return True, email_account
+        else:
+            return False, "Authentication failed during token exchange."
 
 class EmailService:
     @staticmethod
@@ -39,11 +80,10 @@ class EmailService:
         # 4. Apply Search Query (if provided)
         if search_query:
             emails = emails.filter(
-                Q(sender__icontains=search_query) |
-                Q(sender_name__icontains=search_query) |
-                Q(recipient__icontains=search_query) |
-                Q(cc__icontains=search_query) |
-                Q(bcc__icontains=search_query)
+                Q(sender_contact__name__icontains=search_query) |
+                Q(sender_contact__email__icontains=search_query) |
+                Q(recipients__name__icontains=search_query) |
+                Q(recipients__email__icontains=search_query)
             ).distinct()
 
         # 5. Thread Aggregation

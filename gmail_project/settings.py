@@ -33,7 +33,7 @@ DEBUG = os.getenv("DEBUG", "False") == "True"
 if not SECRET_KEY and DEBUG:
     SECRET_KEY = "django-insecure-development-key-only"
 elif not SECRET_KEY:
-    raise ValueError("DJANGO_SECRET_KEY must be set in production!")
+    raise ValueError("FATAL: DJANGO_SECRET_KEY must be set in production! App cannot start.")
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
@@ -91,29 +91,32 @@ WSGI_APPLICATION = "gmail_project.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-if os.getenv("DATABASE_URL"):
-    import dj_database_url
-    DATABASES = {
-        "default": dj_database_url.config(conn_max_age=600, ssl_require=True)
-    }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
+# Database
+# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# Fallback for manual PostgreSQL config if DATABASE_URL not used but Postgres desired
-if os.getenv("USE_POSTGRES") == "True":
-    DATABASES["default"] = {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "gmail_app"),
-        "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", ""),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
-    }
+import dj_database_url
+
+# Default to SQLite for development
+default_db_url = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+
+DATABASES = {
+    "default": dj_database_url.config(
+        default=default_db_url,
+        conn_max_age=600,
+        ssl_require=os.getenv("DB_SSL_REQUIRE", "False") == "True"
+    )
+}
+
+# Allow manual override if DB fields are explicitly set without DATABASE_URL
+# if not os.getenv("DATABASE_URL") and os.getenv("DB_NAME"):
+#     DATABASES["default"] = {
+#         "ENGINE": "django.db.backends.postgresql",
+#         "NAME": os.getenv("DB_NAME"),
+#         "USER": os.getenv("DB_USER", "postgres"),
+#         "PASSWORD": os.getenv("DB_PASSWORD", ""),
+#         "HOST": os.getenv("DB_HOST", "localhost"),
+#         "PORT": os.getenv("DB_PORT", "5432"),
+#     }
 
 
 # Password validation
@@ -160,7 +163,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Gmail API Configuration
 GMAIL_CREDENTIALS_PATH = os.path.join(BASE_DIR, os.getenv('GMAIL_CREDENTIALS_PATH', 'credentials.json'))
 GMAIL_SCOPES = os.getenv('GMAIL_SCOPES', 'https://www.googleapis.com/auth/gmail.readonly').split(',')
-GMAIL_REDIRECT_URI = 'http://localhost:8000/oauth2callback'
+GMAIL_REDIRECT_URI = os.getenv('GMAIL_REDIRECT_URI', 'http://localhost:8000/oauth2callback')
 
 # Authentication Settings
 LOGIN_URL = '/accounts/login/'

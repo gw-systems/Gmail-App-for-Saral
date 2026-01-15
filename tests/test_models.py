@@ -58,14 +58,14 @@ class TestEmail:
     def test_create_email(self, sample_email):
         """Test creating an email."""
         assert sample_email.subject == 'Test Email Subject'
-        assert sample_email.sender == 'sender@example.com'
+        assert sample_email.sender_contact.email == 'sender@example.com'
         assert sample_email.is_read is False
 
     def test_email_string_representation(self, sample_email):
         """Test the string representation of Email."""
         result = str(sample_email)
         assert sample_email.account_email in result
-        assert sample_email.sender in result
+        assert str(sample_email.sender_contact) in result
 
     def test_is_inbox_property(self, sample_email):
         """Test the is_inbox property."""

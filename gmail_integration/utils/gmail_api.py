@@ -169,11 +169,11 @@ def parse_email_message(message_data):
         'gmail_id': message_id,
         'thread_id': thread_id,
         'subject': subject,
-        'sender': sender,
+        'sender_email': sender,
         'sender_name': sender_name,
-        'recipient': recipient,
-        'cc': cc,
-        'bcc': bcc,
+        'recipient_list': [e.strip() for e in recipient.split(',') if e.strip()],
+        'cc_list': [e.strip() for e in cc.split(',') if e.strip()],
+        'bcc_list': [e.strip() for e in bcc.split(',') if e.strip()],
         'date': email_date,
         'snippet': snippet,
         'body_text': body_text,
@@ -207,18 +207,25 @@ def save_email_to_db(email_data):
     Returns the Email object
     """
     # 1. Handle Sender Contact
-    sender_email = email_data.get('sender', '')
+    sender_email = email_data.get('sender_email', '')
     sender_name = email_data.get('sender_name', '')
     sender_contact = get_or_create_contact(sender_email, sender_name)
     
     # Add to defaults/data
-    email_data['sender_contact'] = sender_contact
-    
-    # 2. Extract M2M data (recipients) before saving, as they can't be in defaults for update_or_create
-    # (Note: update_or_create filters by kwargs and updates defaults. We need to be careful what we pass)
-    
-    # Prepare defaults - exclude keys that aren't fields or are handled separately
-    defaults = email_data.copy()
+    # Note: we filter defaults to only include model fields
+    defaults = {
+        'subject': email_data['subject'],
+        'date': email_data['date'],
+        'snippet': email_data['snippet'],
+        'body_text': email_data['body_text'],
+        'body_html': email_data['body_html'],
+        'labels': email_data['labels'],
+        'is_read': email_data['is_read'],
+        'has_attachments': email_data['has_attachments'],
+        'thread_id': email_data['thread_id'],
+        'account_email': email_data.get('account_email'),
+        'sender_contact': sender_contact
+    }
     
     # 3. Save Email
     email_obj, created = Email.objects.update_or_create(
@@ -227,17 +234,10 @@ def save_email_to_db(email_data):
     )
     
     # 4. Handle Recipients (M2M) - post save
-    # Collect all recipient emails (To, CC, BCC)
     all_recipients = []
-    
-    # Helper to parse comma-sep strings back to lists
-    def parse_to_list(recip_str):
-        if not recip_str: return []
-        return [e.strip() for e in recip_str.split(',') if e.strip()]
-
-    all_recipients.extend(parse_to_list(email_data.get('recipient', '')))
-    all_recipients.extend(parse_to_list(email_data.get('cc', '')))
-    all_recipients.extend(parse_to_list(email_data.get('bcc', '')))
+    all_recipients.extend(email_data.get('recipient_list', []))
+    all_recipients.extend(email_data.get('cc_list', []))
+    all_recipients.extend(email_data.get('bcc_list', []))
     
     # Create contacts and link
     if all_recipients:

@@ -50,14 +50,17 @@ def gmail_token(test_user):
 @pytest.fixture
 def sample_email(gmail_token):
     """Create a sample email."""
+    from gmail_integration.models import Contact
+    
+    sender_contact, _ = Contact.objects.get_or_create(email='sender@example.com', name='Test Sender')
+    recipient_contact, _ = Contact.objects.get_or_create(email='test@godamwale.com', name='Test User')
+    
     email = Email.objects.create(
         account_email='test@godamwale.com',
         gmail_id='test_gmail_id_123',
         thread_id='test_thread_123',
         subject='Test Email Subject',
-        sender='sender@example.com',
-        sender_name='Test Sender',
-        recipient='test@godamwale.com',
+        sender_contact=sender_contact,
         date=timezone.now(),
         snippet='This is a test email snippet',
         body_text='This is the body of the test email.',
@@ -66,6 +69,7 @@ def sample_email(gmail_token):
         is_read=False,
         has_attachments=False
     )
+    email.recipients.add(recipient_contact)
     return email
 
 

@@ -1,0 +1,58 @@
+{% extends 'gmail_integration/base.html' %}
+
+{% block title %}Authentication Error - Gmail Viewer{% endblock %}
+
+{% block extra_css %}
+<style>
+    .error-container {
+        text-align: center;
+        padding: 60px 20px;
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
+    .error-icon {
+        font-size: 60px;
+        margin-bottom: 20px;
+    }
+
+    .error-container h1 {
+        font-size: 28px;
+        color: #dc3545;
+        margin-bottom: 20px;
+    }
+
+    .error-message {
+        background-color: #fff3cd;
+        border: 1px solid #ffeeba;
+        color: #856404;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 30px;
+        text-align: left;
+    }
+
+    .action-buttons {
+        margin-top: 30px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="error-container">
+    <div class="error-icon">⚠️</div>
+    <h1>Authentication Failed</h1>
+    
+    <div class="error-message">
+        <strong>Error Details:</strong><br>
+        {{ error_message|default:"An unknown error occurred during authentication." }}
+    </div>
+
+    <p>Please check the console logs if you are an administrator, or try again.</p>
+
+    <div class="action-buttons">
+        <a href="{% url 'start_auth' %}" class="btn">Try Again</a>
+        <a href="{% url 'home' %}" class="btn" style="background-color: #6c757d; margin-left: 10px;">Return Home</a>
+    </div>
+</div>
+{% endblock %}

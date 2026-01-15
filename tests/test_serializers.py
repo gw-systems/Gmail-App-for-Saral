@@ -14,7 +14,8 @@ class TestEmailSerializer:
         data = serializer.data
         
         assert data['subject'] == sample_email.subject
-        assert data['sender'] == sample_email.sender
+        assert data['subject'] == sample_email.subject
+        assert data['sender_contact'] == sample_email.sender_contact.id
         assert data['account_email'] == sample_email.account_email
         assert data['gmail_id'] == sample_email.gmail_id
 
@@ -25,9 +26,10 @@ class TestEmailSerializer:
             'gmail_id': 'unique_gmail_id_456',
             'thread_id': 'thread_456',
             'subject': 'New Test Email',
-            'sender': 'newsender@example.com',
-            'sender_name': 'New Sender',
-            'recipient': 'test@godamwale.com',
+            'subject': 'New Test Email',
+            'sender_contact': None, # Contact creation is handled differently, usually serializer would expect nested or ID. 
+                                    # Assuming for now we test fields. 
+                                    # Actually, serializer defaults to PrimaryKeyRelatedField.
             'date': '2024-01-01T00:00:00Z',
             'snippet': 'Test snippet',
             'is_read': False,

@@ -59,9 +59,14 @@ class TestEmailViewSet:
         """Test searching emails."""
         api_client.force_authenticate(user=test_user)
         url = reverse('email-list')
-        response = api_client.get(url, {'search': 'Test Email'})
+        # Search by sender name which we know is in the sample email's contact
+        response = api_client.get(url, {'search': 'Test Sender'})
         
         assert response.status_code == status.HTTP_200_OK
+        # Verify we get the email back
+        results = response.data.get('results', response.data) if isinstance(response.data, dict) else response.data
+        assert len(results) >= 1
+        assert results[0]['subject'] == sample_email.subject
 
     def test_admin_sees_all_emails(self, api_client, admin_user, sample_email):
         """Test that admin users can see all emails."""

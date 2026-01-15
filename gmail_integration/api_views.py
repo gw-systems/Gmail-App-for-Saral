@@ -11,8 +11,8 @@ class EmailViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = EmailSerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['account_email', 'is_read', 'has_attachments', 'sender']
-    search_fields = ['subject', 'body_text', 'sender', 'recipient', 'snippet']
+    filterset_fields = ['account_email', 'is_read', 'has_attachments']
+    search_fields = ['subject', 'body_text', 'sender_contact__email', 'sender_contact__name', 'snippet']
     ordering_fields = ['date', 'created_at']
 
     def get_queryset(self):

@@ -10,9 +10,9 @@ class GmailTokenAdmin(admin.ModelAdmin):
 
 @admin.register(Email)
 class EmailAdmin(admin.ModelAdmin):
-    list_display = ('subject', 'sender', 'date', 'is_read', 'label_list_display')
+    list_display = ('subject', 'sender_contact', 'date', 'is_read', 'label_list_display')
     list_filter = ('is_read', 'date', 'has_attachments')
-    search_fields = ('subject', 'sender', 'recipient', 'body_text')
+    search_fields = ('subject', 'sender_contact__email', 'sender_contact__name', 'body_text')
     readonly_fields = ('gmail_id', 'thread_id', 'created_at', 'updated_at')
     date_hierarchy = 'date'
     

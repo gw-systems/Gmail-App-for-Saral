@@ -12,4 +12,5 @@ urlpatterns = [
     path('sync/', views.force_sync_view, name='force_sync'),
     path('search/', views.search_emails, name='search_emails'),
     path('compose/', views.compose_email_view, name='compose_email'),
+    path('test-error/', lambda request: views.render(request, 'gmail_integration/oauth_error.html', {'error_message': 'This is a test error message for preview purposes.'}), name='test_error'),
 ]

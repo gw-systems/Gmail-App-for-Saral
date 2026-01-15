@@ -29,66 +29,50 @@ def start_auth(request: HttpRequest) -> HttpResponse:
         request.session['oauth_user_id'] = request.user.id
         return redirect(auth_url)
     except Exception as e:
-        return HttpResponse(f"Error starting authentication: {e}", status=500)
+        logger.exception(f"Error starting authentication: {e}")
+        return render(request, 'gmail_integration/oauth_error.html', {
+            'error_message': "Could not start authentication process. Please check configuration."
+        }, status=500)
 
 
 @login_required
 def oauth2callback(request: HttpRequest) -> HttpResponse:
     """Handle OAuth callback from Google"""
+    from .services import AuthService
+    
     try:
-        # Get the full callback URL
-        authorization_response = request.build_absolute_uri()
-        state = request.session.get('oauth_state')
-        user_id = request.session.get('oauth_user_id')
-        
-        # Verify user
-        if not user_id or user_id != request.user.id:
-            return HttpResponse("Invalid session. Please try again.", status=400)
-        
-        logger.info(f"OAuth callback started for user: {request.user.username}")
-        logger.debug(f"State from session: {state}")
-        
-        # Handle the callback
-        success, email_account = handle_oauth_callback(
-            authorization_response, 
-            state, 
-            user=request.user
+        # Delegate business logic to service
+        success, result = AuthService.handle_oauth_callback(
+            request_uri=request.build_absolute_uri(),
+            session_state=request.session.get('oauth_state'),
+            session_user_id=request.session.get('oauth_user_id'),
+            current_user=request.user
         )
         
+        # Cleanup session regardless of outcome to prevent stale state
+        request.session.pop('oauth_state', None)
+        request.session.pop('oauth_user_id', None)
+        
         if success:
-            # Clear state from session
-            request.session.pop('oauth_state', None)
-            request.session.pop('oauth_user_id', None)
-            
-            # Success message
+            # Result is the email account name
             messages.success(
                 request, 
-                f"Successfully connected {email_account}! Your emails are being synced in the background."
+                f"Successfully connected {result}! Your emails are being synced in the background."
             )
-            
-            # Start background sync
             async_task(sync_emails_task)
-            
-            # Redirect to profile instead of inbox
             return redirect('accounts:profile')
         else:
-            error_msg = "Authentication failed. Please check the terminal for detailed error logs."
-            return HttpResponse(f"""
-                <h1>Authentication Failed</h1>
-                <p>{error_msg}</p>
-                <p>Please check the terminal/console for detailed error information.</p>
-                <a href="/start-auth/">Try Again</a>
-            """, status=400)
+            # Result is the error message
+            logger.error(f"OAuth failed: {result}")
+            return render(request, 'gmail_integration/oauth_error.html', {
+                'error_message': result
+            }, status=400)
             
     except Exception as e:
-        logger.exception(f"Error during OAuth callback: {e}")
-        
-        return HttpResponse(f"""
-            <h1>Error during authentication</h1>
-            <pre>{str(e)}</pre>
-            <p>Check terminal for full traceback.</p>
-            <a href="/start-auth/">Try Again</a>
-        """, status=500)
+        logger.exception(f"Unexpected error during OAuth callback: {e}")
+        return render(request, 'gmail_integration/oauth_error.html', {
+            'error_message': "An unexpected system error occurred. Please contact support."
+        }, status=500)
 
 
 @login_required

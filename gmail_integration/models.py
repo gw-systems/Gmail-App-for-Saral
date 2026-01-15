@@ -74,16 +74,11 @@ class Email(models.Model):
     thread_id = models.CharField(max_length=255, db_index=True, help_text="Gmail thread ID")
     subject = models.TextField(blank=True)
     
+    
     # Relationships
     sender_contact = models.ForeignKey(Contact, on_delete=models.SET_NULL, null=True, related_name='sent_emails', help_text="Link to Sender Contact")
     recipients = models.ManyToManyField(Contact, related_name='received_emails', blank=True, help_text="All recipients (To, CC, BCC)")
     
-    # Legacy fields (keeping for now, but deprecated)
-    sender = models.EmailField(max_length=255)
-    sender_name = models.CharField(max_length=255, blank=True, help_text="Sender's display name")
-    recipient = models.EmailField(max_length=255, blank=True)
-    cc = models.TextField(blank=True, help_text="CC recipients (comma-separated)")
-    bcc = models.TextField(blank=True, help_text="BCC recipients (comma-separated)")
     date = models.DateTimeField(db_index=True)
     snippet = models.TextField(blank=True, help_text="Email preview text")
     body_text = models.TextField(blank=True, help_text="Plain text body")
@@ -105,7 +100,9 @@ class Email(models.Model):
         ]
     
     def __str__(self):
-        return f"[{self.account_email}] {self.subject[:50]} - {self.sender}"
+        subject_snippet = self.subject[:50] if self.subject else "(No Subject)"
+        sender_str = str(self.sender_contact) if self.sender_contact else "Unknown Sender"
+        return f"[{self.account_email}] {subject_snippet} - {sender_str}"
     
     def get_account_color_class(self):
         """Get CSS class for account color coding from the associated GmailToken"""

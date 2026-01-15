@@ -229,10 +229,10 @@
                 <span class="account-badge {{ email.get_account_color_class }}">
                     {{ email.account_email }}
                 </span>
-                {% if email.sender_name %}
-                {{ email.sender_name }} &lt;{{ email.sender }}&gt;
+                {% if email.sender_contact.name %}
+                {{ email.sender_contact.name }} &lt;{{ email.sender_contact.email }}&gt;
                 {% else %}
-                {{ email.sender }}
+                {{ email.sender_contact.email }}
                 {% endif %}
                 {% if thread.message_count > 1 %}
                 <span

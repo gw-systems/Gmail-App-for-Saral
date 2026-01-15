@@ -12,7 +12,7 @@ class EmailSerializer(serializers.ModelSerializer):
         model = Email
         fields = [
             'id', 'account_email', 'gmail_id', 'thread_id', 'subject', 
-            'sender', 'sender_name', 'recipient', 'cc', 'bcc', 'date', 
+            'sender_contact', 'recipients', 'date', 
             'snippet', 'is_read', 'has_attachments', 'labels'
         ]
         read_only_fields = ['gmail_id', 'thread_id', 'date']

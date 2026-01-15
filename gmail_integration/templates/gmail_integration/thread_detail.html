@@ -158,17 +158,17 @@
             <div class="message-from">
                 <div class="sender-info">
                     <div class="sender-avatar">
-                        {{ email.sender_name.0|default:email.sender.0|upper }}
+                        {{ email.sender_contact.name.0|default:email.sender_contact.email.0|upper }}
                     </div>
                     <div class="sender-details">
                         <div class="sender-name">
-                            {% if email.sender_name %}
-                            {{ email.sender_name }}
+                            {% if email.sender_contact.name %}
+                            {{ email.sender_contact.name }}
                             {% else %}
-                            {{ email.sender }}
+                            {{ email.sender_contact.email }}
                             {% endif %}
                         </div>
-                        <div class="sender-email">&lt;{{ email.sender }}&gt;</div>
+                        <div class="sender-email">&lt;{{ email.sender_contact.email }}&gt;</div>
                     </div>
                 </div>
                 <div class="message-date">
