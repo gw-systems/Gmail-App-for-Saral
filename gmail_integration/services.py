@@ -49,16 +49,20 @@ class EmailService:
     def get_threads_for_user(
         user: User | AbstractBaseUser | AnonymousUser, 
         account_filter: str = 'all', 
-        search_query: Optional[str] = None
-    ) -> Tuple[List[Dict[str, Any]], QuerySet]:
+        search_query: Optional[str] = None,
+        page_number: int = 1,
+        items_per_page: int = 20
+    ) -> Tuple[List[Dict[str, Any]], Any, QuerySet]:
         """
         Retrieves email threads for a user, applying permissions, filters, and search.
-        Returns a list of dictionaries representing threads.
+        Returns (thread_list, page_obj, available_accounts).
         """
+        from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
         # 1. Determine accessible accounts
         available_accounts: QuerySet
-        if user.is_staff:
-            # Admins see all active accounts
+        if user.has_perm('gmail_integration.view_all_gmail_accounts'):
+            # Authorized users see all active accounts
             available_accounts = GmailToken.objects.filter(
                 is_active=True
             ).values_list('email_account', flat=True).distinct()
@@ -93,19 +97,33 @@ class EmailService:
         ).order_by('-date').values('id')[:1]
         
         # Aggregate threads with message count and latest email ID
-        threads = emails.values('thread_id').annotate(
+        threads_qs = emails.values('thread_id').annotate(
             message_count=Count('id'),
             latest_date=Max('date'),
             latest_email_id=Subquery(latest_email_subquery)
         ).order_by('-latest_date')
+
+        # 6. Apply Pagination
+        paginator = Paginator(threads_qs, items_per_page)
         
-        # Fetch all latest emails in one query
-        latest_email_ids = [t['latest_email_id'] for t in threads if t['latest_email_id'] is not None]
+        try:
+            page_obj = paginator.page(page_number)
+        except PageNotAnInteger:
+            page_obj = paginator.page(1)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)
+            
+        # 7. Fetch details only for the current page
+        # Extract latest_email_ids from the paginated objects
+        page_threads = page_obj.object_list
+        latest_email_ids = [t['latest_email_id'] for t in page_threads if t['latest_email_id'] is not None]
+        
+        # Bulk fetch the Email objects
         latest_emails = Email.objects.in_bulk(latest_email_ids)
         
-        # 6. Build Result List
+        # 8. Build Result List
         thread_list: List[Dict[str, Any]] = []
-        for thread in threads:
+        for thread in page_threads:
             email_id = thread['latest_email_id']
             if email_id in latest_emails:
                 email = latest_emails[email_id]
@@ -119,7 +137,7 @@ class EmailService:
                 })
         
         
-        return thread_list, available_accounts
+        return thread_list, page_obj, available_accounts
 
     @staticmethod
     def send_email(
@@ -143,15 +161,15 @@ class EmailService:
 
         # 1. Get service
         # Ensure the user owns this account
-        if not user.is_superuser:
+        if not user.has_perm('gmail_integration.view_all_gmail_accounts'):
             has_permission = GmailToken.objects.filter(user=user, email_account=sender_email, is_active=True).exists()
             if not has_permission:
                 logger.warning(f"User {user.username} prevented from sending as {sender_email}")
                 return False
         
-        # For superusers, we don't restrict to their own token - we find ANY valid token for the account
+        # For superusers/admins, we don't restrict to their own token - we find ANY valid token for the account
         # For regular users, strict ownership check applies
-        if user.is_superuser:
+        if user.has_perm('gmail_integration.view_all_gmail_accounts'):
             service = get_gmail_service(user=None, account_email=sender_email)
         else:
             service = get_gmail_service(user=user, account_email=sender_email)

@@ -82,19 +82,23 @@ def inbox_view(request: HttpRequest) -> HttpResponse:
     """Display all emails (inbox + sent) grouped by thread with multi-account support"""
     
     # Check if user is admin (using staff permission)
-    is_admin = request.user.is_staff
+    # Check if user is admin (using staff permission)
+    is_admin = request.user.has_perm('gmail_integration.view_all_gmail_accounts')
     
     # Get selected account from query params
     selected_account = request.GET.get('account', 'all')
+    page_number = request.GET.get('page', 1)
     
     # Get threads using service
-    thread_list, available_accounts = EmailService.get_threads_for_user(
+    thread_list, page_obj, available_accounts = EmailService.get_threads_for_user(
         request.user, 
-        account_filter=selected_account
+        account_filter=selected_account,
+        page_number=page_number
     )
     
     context = {
         'threads': thread_list,
+        'page_obj': page_obj,
         'page_title': 'All Mail',
         'active_page': 'inbox',
         'is_admin': is_admin,
@@ -163,24 +167,26 @@ def search_emails(request: HttpRequest) -> HttpResponse:
         return render(request, 'gmail_integration/auth_required.html')
     
     query = request.GET.get('q', '').strip()
+    page_number = request.GET.get('page', 1)
     
     if not query:
         # No search query, redirect to inbox
         return redirect('inbox')
     
     # Get threads using service with search query
-    thread_list, _ = EmailService.get_threads_for_user(
+    thread_list, page_obj, _ = EmailService.get_threads_for_user(
         request.user, 
-        search_query=query
+        search_query=query,
+        page_number=page_number
     )
     
     context = {
         'query': query,
         'threads': thread_list,
+        'page_obj': page_obj,
         # 'total_emails' was redundant/unused in previous logic's context for display, 
-        # but we can get it from thread_list length or similar if needed. 
-        # For now, sticking to providing threads.
-        'total_threads': len(thread_list),
+        # but we can get it from page_obj.paginator.count if needed. 
+        'total_threads': page_obj.paginator.count,
         'page_title': f'Search: {query}',
         'active_page': 'search'
     }
@@ -220,7 +226,8 @@ def compose_email_view(request: HttpRequest) -> HttpResponse:
     Admin can send from any account.
     """
     # Get authorized accounts
-    if request.user.is_superuser:
+    # Get authorized accounts
+    if request.user.has_perm('gmail_integration.view_all_gmail_accounts'):
         # Admin can see all active tokens
         authorized_accounts = GmailToken.objects.filter(is_active=True)
     else:
@@ -284,7 +291,7 @@ def download_attachment(request: HttpRequest, attachment_id: int) -> HttpRespons
     account_email = email.account_email
     
     # Check if user has access to this account
-    if not request.user.is_staff:
+    if not request.user.has_perm('gmail_integration.view_all_gmail_accounts'):
         # Regular users can only access their own accounts
         has_access = GmailToken.objects.filter(
             user=request.user,

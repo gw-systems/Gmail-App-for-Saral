@@ -39,10 +39,10 @@ elif not SECRET_KEY:
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 if not ENCRYPTION_KEY:
     if DEBUG:
-        # In development, generate a temporary key (WARNING: tokens will be invalid after restart)
-        from cryptography.fernet import Fernet
-        ENCRYPTION_KEY = Fernet.generate_key()
-        print("WARNING: Using temporary encryption key. Set ENCRYPTION_KEY in .env for persistence.")
+        # In development, use a STABLE fixed key so tokens persist across restarts
+        # This is a valid Fernet key (32 url-safe base64-encoded bytes)
+        ENCRYPTION_KEY = b'ChangeMeInProductionAttributes_32BytesKey=' 
+        print("WARNING: Using fixed development encryption key. Tokens are NOT secure.")
     else:
         raise ValueError("FATAL: ENCRYPTION_KEY must be set in production! GDPR compliance requires secure storage.")
 

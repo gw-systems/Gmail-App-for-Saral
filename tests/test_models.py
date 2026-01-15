@@ -11,15 +11,22 @@ class TestGmailToken:
 
     def test_create_gmail_token(self, test_user):
         """Test creating a Gmail token."""
-        token = GmailToken.objects.create(
+        # Note: Using objects.create directly with token_data will store it in plaintext 
+        # unless we use the service method or custom save. 
+        # But for this test, we verify the fields are set as passed.
+        # However, for GDPR compliancy, we should use save_token_for_user.
+        
+        token = GmailToken.save_token_for_user(
             user=test_user,
             email_account='test@example.com',
-            token_data={'token': 'test_token'},
-            is_active=True
+            token_data={'token': 'test_token'}
         )
         assert token.email_account == 'test@example.com'
         assert token.user == test_user
         assert token.is_active is True
+        # Verify it's encrypted
+        assert token.token_data is None
+        assert token.get_decrypted_token() == {'token': 'test_token'}
 
     def test_gmail_token_string_representation(self, gmail_token):
         """Test the string representation of GmailToken."""
@@ -28,9 +35,14 @@ class TestGmailToken:
 
     def test_get_token_for_user(self, test_user, gmail_token):
         """Test getting token for a specific user."""
+        # Ensure the fixture token is properly encrypted
+        gmail_token.set_encrypted_token(gmail_token.token_data)
+        gmail_token.save()
+        
         token_data = GmailToken.get_token_for_user(test_user)
         assert token_data is not None
-        assert token_data == gmail_token.token_data
+        # Should compare with decrypted version
+        assert token_data == gmail_token.get_decrypted_token()
 
     def test_save_token_for_user(self, test_user):
         """Test saving a token for a user."""
@@ -41,7 +53,10 @@ class TestGmailToken:
             token_data=token_data
         )
         assert token.email_account == 'new@example.com'
-        assert token.token_data == token_data
+        # Verify strict encryption: plaintext field should be None
+        assert token.token_data is None
+        # Verify decryption works
+        assert token.get_decrypted_token() == token_data
 
     def test_get_all_active_tokens(self, gmail_token):
         """Test getting all active tokens."""

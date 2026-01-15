@@ -19,6 +19,9 @@ class GmailToken(models.Model):
         verbose_name = "Gmail Token"
         verbose_name_plural = "Gmail Tokens"
         unique_together = ['user', 'email_account']
+        permissions = [
+            ("view_all_gmail_accounts", "Can view all Gmail accounts"),
+        ]
     
     def __str__(self):
         return f"{self.email_account} (User: {self.user.username})"
@@ -27,16 +30,13 @@ class GmailToken(models.Model):
         """Get decrypted token data (GDPR compliant)"""
         from gmail_integration.utils.encryption import EncryptionUtils
         
-        # Prefer encrypted data if available
+        # STRICT GDPR COMPLIANCE: Only decrypt from encrypted storage
         if self.encrypted_token_data:
             decrypted = EncryptionUtils.decrypt(self.encrypted_token_data)
             if decrypted:
                 return decrypted
         
-        # Fallback to plaintext (for migration period)
-        if self.token_data:
-            return self.token_data
-        
+        # No plaintext fallback allowed
         return None
     
     def set_encrypted_token(self, token_data):
@@ -45,8 +45,9 @@ class GmailToken(models.Model):
         
         if token_data:
             self.encrypted_token_data = EncryptionUtils.encrypt(token_data)
-            # Keep plaintext for backward compatibility during migration
-            self.token_data = token_data
+            # STRICT GDPR COMPLIANCE: Do NOT store plaintext
+            # self.token_data serves only as a legacy field now
+            self.token_data = None
     
     @classmethod
     def get_token_for_user(cls, user):

@@ -17,7 +17,7 @@ class EmailViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_staff:
+        if user.has_perm('gmail_integration.view_all_gmail_accounts'):
             return Email.objects.all()
         
         user_accounts = GmailToken.objects.filter(user=user).values_list('email_account', flat=True)
@@ -33,7 +33,7 @@ class GmailTokenViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # Users only see their own tokens
-        if self.request.user.is_superuser:
+        if self.request.user.has_perm('gmail_integration.view_all_gmail_accounts'):
             return GmailToken.objects.all()
         return GmailToken.objects.filter(user=self.request.user)
 

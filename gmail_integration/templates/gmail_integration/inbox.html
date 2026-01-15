@@ -223,7 +223,7 @@
     {% for thread in threads %}
     {% with email=thread.latest_email %}
     <li class="email-item {% if not email.is_read %}unread{% endif %}"
-        onclick="window.location.href='{% url 'thread_view' thread.thread_id %}'">
+        onclick="window.location.href='{% url 'thread_view' thread.thread_id %}';">
         <div class="email-header">
             <div class="email-sender">
                 <span class="account-badge {{ email.get_account_color_class }}">
@@ -260,6 +260,39 @@
     {% endwith %}
     {% endfor %}
 </ul>
+
+<!-- Pagination Controls -->
+{% if page_obj.has_other_pages %}
+<div class="pagination" style="display: flex; justify-content: center; margin-top: 30px; gap: 5px;">
+    {% if page_obj.has_previous %}
+    <a href="?page=1{% if selected_account != 'all' %}&account={{ selected_account }}{% endif %}{% if query %}&q={{ query }}{% endif %}"
+        class="page-link"
+        style="padding: 8px 16px; background: white; border: 1px solid #e9ecef; border-radius: 6px; color: #495057; text-decoration: none; transition: all 0.2s;">First</a>
+    <a href="?page={{ page_obj.previous_page_number }}{% if selected_account != 'all' %}&account={{ selected_account }}{% endif %}{% if query %}&q={{ query }}{% endif %}"
+        class="page-link"
+        style="padding: 8px 16px; background: white; border: 1px solid #e9ecef; border-radius: 6px; color: #495057; text-decoration: none; transition: all 0.2s;">Previous</a>
+    {% endif %}
+
+    <span class="current-page"
+        style="padding: 8px 16px; background: #667eea; border: 1px solid #667eea; border-radius: 6px; color: white; font-weight: 600;">
+        Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+    </span>
+
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}{% if selected_account != 'all' %}&account={{ selected_account }}{% endif %}{% if query %}&q={{ query }}{% endif %}"
+        class="page-link"
+        style="padding: 8px 16px; background: white; border: 1px solid #e9ecef; border-radius: 6px; color: #495057; text-decoration: none; transition: all 0.2s;"
+        onmouseover="this.style.borderColor='#667eea'; this.style.color='#667eea'"
+        onmouseout="this.style.borderColor='#e9ecef'; this.style.color='#495057'">Next</a>
+    <a href="?page={{ page_obj.paginator.num_pages }}{% if selected_account != 'all' %}&account={{ selected_account }}{% endif %}{% if query %}&q={{ query }}{% endif %}"
+        class="page-link"
+        style="padding: 8px 16px; background: white; border: 1px solid #e9ecef; border-radius: 6px; color: #495057; text-decoration: none; transition: all 0.2s;"
+        onmouseover="this.style.borderColor='#667eea'; this.style.color='#667eea'"
+        onmouseout="this.style.borderColor='#e9ecef'; this.style.color='#495057'">Last</a>
+    {% endif %}
+</div>
+{% endif %}
+
 {% else %}
 <div class="no-emails">
     <div class="no-emails-icon">📭</div>
