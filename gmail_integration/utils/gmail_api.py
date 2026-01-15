@@ -11,6 +11,7 @@ from django.utils import timezone
 import logging
 from .gmail_auth import get_gmail_service
 from ..models import Email, SyncStatus
+import bleach
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,40 @@ def parse_email_message(message_data):
         if part.get('filename')
     )
     
+    # Sanitize HTML to prevent XSS
+    if body_html:
+        try:
+            allowed_tags = [
+                'a', 'abbr', 'acronym', 'b', 'blockquote', 'br', 'code', 'div',
+                'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img',
+                'li', 'ol', 'p', 'pre', 'span', 'strong', 'table', 'tbody',
+                'td', 'th', 'thead', 'tr', 'ul', 'u'
+            ]
+            allowed_attrs = {
+                '*': ['class', 'style', 'title'],
+                'a': ['href', 'target', 'rel'],
+                'img': ['src', 'alt', 'width', 'height', 'style'],
+                'table': ['border', 'cellpadding', 'cellspacing', 'style'],
+                'td': ['colspan', 'rowspan', 'style'],
+                'th': ['colspan', 'rowspan', 'style'],
+                'div': ['style'],
+                'span': ['style'],
+                'p': ['style'],
+            }
+            # Cleaning the HTML
+            # Note: For full CSS sanitization we would need more complex logic,
+            # but this prevents script injection.
+            body_html = bleach.clean(
+                body_html, 
+                tags=allowed_tags, 
+                attributes=allowed_attrs, 
+                strip=True
+            )
+        except Exception as e:
+            logger.error(f"Error sanitizing HTML for email {message_id}: {e}")
+            # Fallback: escape everything if sanitization fails
+            body_html = bleach.clean(body_html, tags=[], strip=True)
+
     return {
         'gmail_id': message_id,
         'thread_id': thread_id,
@@ -211,6 +246,11 @@ def save_email_to_db(email_data):
     sender_name = email_data.get('sender_name', '')
     sender_contact = get_or_create_contact(sender_email, sender_name)
     
+    # NEW: Link to GmailToken FK
+    from ..models import GmailToken
+    account_email_str = email_data.get('account_email')
+    account_token = GmailToken.objects.filter(email_account=account_email_str).first()
+
     # Add to defaults/data
     # Note: we filter defaults to only include model fields
     defaults = {
@@ -223,7 +263,8 @@ def save_email_to_db(email_data):
         'is_read': email_data['is_read'],
         'has_attachments': email_data['has_attachments'],
         'thread_id': email_data['thread_id'],
-        'account_email': email_data.get('account_email'),
+        'account_email': account_email_str,
+        'account_link': account_token,
         'sender_contact': sender_contact
     }
     

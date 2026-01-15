@@ -70,6 +70,7 @@ class Contact(models.Model):
 class Email(models.Model):
     """Store email messages from Gmail - Multi-Account Support"""
     account_email = models.EmailField(max_length=255, db_index=True, help_text="Gmail account this email belongs to")
+    account_link = models.ForeignKey(GmailToken, on_delete=models.SET_NULL, null=True, blank=True, related_name='emails', help_text="Link to the Gmail Token/Account")
     gmail_id = models.CharField(max_length=255, unique=True, help_text="Gmail message ID")
     thread_id = models.CharField(max_length=255, db_index=True, help_text="Gmail thread ID")
     subject = models.TextField(blank=True)

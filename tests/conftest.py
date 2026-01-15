@@ -57,6 +57,7 @@ def sample_email(gmail_token):
     
     email = Email.objects.create(
         account_email='test@godamwale.com',
+        account_link=gmail_token,
         gmail_id='test_gmail_id_123',
         thread_id='test_thread_123',
         subject='Test Email Subject',

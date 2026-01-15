@@ -118,4 +118,57 @@ class EmailService:
                     'latest_snippet': email.snippet,
                 })
         
+        
         return thread_list, available_accounts
+
+    @staticmethod
+    def send_email(
+        user: User,
+        sender_email: str,
+        to_email: str,
+        subject: str,
+        message_text: str,
+        cc: str = '',
+        bcc: str = ''
+    ) -> bool:
+        """
+        Orchestrates sending an email:
+        1. Authenticates
+        2. Creates message
+        3. Sends via Gmail API
+        4. Syncs 'Sent' folder
+        """
+        from .utils.gmail_auth import get_gmail_service
+        from .utils.gmail_api import create_message, send_email as send_gmail_api, fetch_emails
+
+        # 1. Get service
+        # Ensure the user owns this account
+        if not user.is_superuser:
+            has_permission = GmailToken.objects.filter(user=user, email_account=sender_email, is_active=True).exists()
+            if not has_permission:
+                logger.warning(f"User {user.username} prevented from sending as {sender_email}")
+                return False
+        
+        service = get_gmail_service(account_email=sender_email)
+        if not service:
+            logger.error(f"Could not authenticate with {sender_email}")
+            return False
+
+        # 2. Create message
+        try:
+            msg = create_message(sender_email, to_email, subject, message_text, cc, bcc)
+            
+            # 3. Send email
+            sent_msg = send_gmail_api(service, 'me', msg)
+            
+            if sent_msg:
+                # 4. Trigger sync for Sent folder
+                # we don't await this, just let it run or run it here synchronously if it's fast
+                # The original view ran it synchronously
+                fetch_emails(service, sender_email, 'SENT', 1)
+                return True
+            else:
+                return False
+        except Exception as e:
+            logger.exception(f"Error checking/sending email: {e}")
+            return False

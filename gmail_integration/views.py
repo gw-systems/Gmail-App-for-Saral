@@ -9,7 +9,11 @@ from .utils.gmail_api import check_for_new_emails, create_message, send_email
 from django_q.tasks import async_task
 from .tasks import sync_emails_task
 
+
+from .services import AuthService, EmailService
+ 
 logger = logging.getLogger(__name__)
+
 
 
 def home(request: HttpRequest) -> HttpResponse:
@@ -38,8 +42,6 @@ def start_auth(request: HttpRequest) -> HttpResponse:
 @login_required
 def oauth2callback(request: HttpRequest) -> HttpResponse:
     """Handle OAuth callback from Google"""
-    from .services import AuthService
-    
     try:
         # Delegate business logic to service
         success, result = AuthService.handle_oauth_callback(
@@ -78,7 +80,6 @@ def oauth2callback(request: HttpRequest) -> HttpResponse:
 @login_required
 def inbox_view(request: HttpRequest) -> HttpResponse:
     """Display all emails (inbox + sent) grouped by thread with multi-account support"""
-    from .services import EmailService
     
     # Check if user is admin (using staff permission)
     is_admin = request.user.is_staff
@@ -145,7 +146,6 @@ def search_emails(request: HttpRequest) -> HttpResponse:
     Search emails by sender/recipient name or email address
     Results are grouped by thread
     """
-    from .services import EmailService
 
     # Check authentication
     if not is_authenticated(user=request.user):
@@ -231,23 +231,21 @@ def compose_email_view(request: HttpRequest) -> HttpResponse:
         if not all([sender_email, to_email, subject, message_text]):
             messages.error(request, "Please fill in all required fields.")
         else:
-            # Get service for the selected sender account
-            service = get_gmail_service(account_email=sender_email)
-            if service:
-                # Create and send message
-                msg = create_message(sender_email, to_email, subject, message_text, cc, bcc)
-                sent_msg = send_email(service, 'me', msg)
-                
-                if sent_msg:
-                    messages.success(request, f"Email sent successfully from {sender_email}!")
-                    # Trigger a sync for the sent folder to show the email in the app
-                    from .utils.gmail_api import fetch_emails
-                    fetch_emails(service, sender_email, 'SENT', 1)
-                    return redirect('inbox')
-                else:
-                    messages.error(request, "Failed to send email. Please check your connection and try again.")
+            success = EmailService.send_email(
+                user=request.user,
+                sender_email=sender_email,
+                to_email=to_email,
+                subject=subject,
+                message_text=message_text,
+                cc=cc,
+                bcc=bcc
+            )
+            
+            if success:
+                messages.success(request, f"Email sent successfully from {sender_email}!")
+                return redirect('inbox')
             else:
-                messages.error(request, f"Could not authenticate with {sender_email}.")
+                messages.error(request, "Failed to send email. Please check logs/connection.")
 
     context = {
         'authorized_accounts': authorized_accounts,
