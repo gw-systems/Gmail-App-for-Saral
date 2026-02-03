@@ -124,25 +124,20 @@ def thread_view(request: HttpRequest, thread_id: str) -> HttpResponse:
     if not is_authenticated(user=request.user):
         return render(request, 'gmail_integration/auth_required.html')
     
-    # Get all emails in this thread
-    emails = Email.objects.filter(thread_id=thread_id).order_by('date')
+    # Get all emails in this thread using service (handles permission check)
+    emails = EmailService.get_thread_emails(request.user, thread_id)
     
-    if not emails.exists():
-        return HttpResponse("Thread not found", status=404)
+    if emails is None:
+        # Could be 404 or 403, we treat as not found for security/simplicity logic in original
+        # Original: if not emails.exists() -> 404
+        # Original: if not is_authenticated -> 401 (handled at start)
+        return HttpResponse("Thread not found or permission denied", status=404)
     
     # Get thread metadata
     first_email = emails.first()
     
-    # Add unique attachments to each email to avoid duplicates in template
-    for email in emails:
-        # Get unique attachments by filename
-        seen_filenames = set()
-        unique_attachments = []
-        for att in email.attachments.all():
-            if att.filename not in seen_filenames:
-                unique_attachments.append(att)
-                seen_filenames.add(att.filename)
-        email.unique_attachments = unique_attachments
+    # Process unique attachments using service
+    EmailService.process_thread_attachments(emails)
     
     context = {
         'emails': emails,
@@ -226,15 +221,11 @@ def compose_email_view(request: HttpRequest) -> HttpResponse:
     Admin can send from any account.
     """
     # Get authorized accounts
-    # Get authorized accounts
-    if request.user.has_perm('gmail_integration.view_all_gmail_accounts'):
-        # Admin can see all active tokens
-        authorized_accounts = GmailToken.objects.filter(is_active=True)
-    else:
-        # Regular user only sees their own
-        authorized_accounts = GmailToken.objects.filter(user=request.user, is_active=True)
+    # Get authorized accounts using service
+    authorized_accounts = AuthService.get_authorized_accounts(request.user)
     
     if not authorized_accounts.exists():
+        # ... rest is same
         messages.warning(request, "Please connect a Gmail account before composing an email.")
         return redirect('home')
 
@@ -245,6 +236,30 @@ def compose_email_view(request: HttpRequest) -> HttpResponse:
         message_text = request.POST.get('message')
         cc = request.POST.get('cc', '')
         bcc = request.POST.get('bcc', '')
+        
+        # Handle file attachments
+        attachments = []
+        files = request.FILES.getlist('attachments')
+        
+        # Validate and process attachments
+        MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB
+        for uploaded_file in files:
+            # Server-side file size validation
+            if uploaded_file.size > MAX_FILE_SIZE:
+                messages.error(request, f"File '{uploaded_file.name}' exceeds 25MB limit.")
+                context = {
+                    'authorized_accounts': authorized_accounts,
+                    'title': 'Compose Email'
+                }
+                return render(request, 'gmail_integration/compose_email.html', context)
+            
+            # Read file content
+            file_content = uploaded_file.read()
+            attachments.append({
+                'filename': uploaded_file.name,
+                'content': file_content,
+                'mimetype': uploaded_file.content_type or 'application/octet-stream'
+            })
 
         if not all([sender_email, to_email, subject, message_text]):
             messages.error(request, "Please fill in all required fields.")
@@ -256,7 +271,8 @@ def compose_email_view(request: HttpRequest) -> HttpResponse:
                 subject=subject,
                 message_text=message_text,
                 cc=cc,
-                bcc=bcc
+                bcc=bcc,
+                attachments=attachments
             )
             
             if success:
@@ -276,39 +292,34 @@ def compose_email_view(request: HttpRequest) -> HttpResponse:
 def download_attachment(request: HttpRequest, attachment_id: int) -> HttpResponse:
     """
     Download email attachment with permission check
+    Streams directly from Gmail API -> User (No local storage)
     """
-    from .models import Attachment, GmailToken
+    from .models import Attachment
     from django.http import FileResponse, Http404
+    import io
     
-    # Get attachment
+    # Get attachment content
+    attachment, file_data = EmailService.get_attachment_content(request.user, attachment_id)
+    
+    if not attachment:
+        # Not found or permission denied
+        return HttpResponse("Attachment not found or permission denied", status=403)
+    
+    if not file_data:
+        # Metadata exists but download failed (or service unavailable)
+        logger.error(f"Failed to download content for attachment {attachment_id}")
+        return HttpResponse("Error downloading file from Gmail. Please try again later.", status=502)
+    
+    # Serve file from memory
     try:
-        attachment = Attachment.objects.select_related('email').get(id=attachment_id)
-    except Attachment.DoesNotExist:
-        raise Http404("Attachment not found")
-    
-    # Permission check: user must have access to the email's account
-    email = attachment.email
-    account_email = email.account_email
-    
-    # Check if user has access to this account
-    if not request.user.has_perm('gmail_integration.view_all_gmail_accounts'):
-        # Regular users can only access their own accounts
-        has_access = GmailToken.objects.filter(
-            user=request.user,
-            email_account=account_email,
-            is_active=True
-        ).exists()
+        # Wrap bytes in BytesIO to mimic a file
+        file_stream = io.BytesIO(file_data)
         
-        if not has_access:
-            return HttpResponse("Permission denied", status=403)
-    
-    # Serve file
-    try:
-        response = FileResponse(attachment.file.open('rb'), content_type=attachment.mime_type)
+        response = FileResponse(file_stream, content_type=attachment.mime_type)
         response['Content-Disposition'] = f'attachment; filename="{attachment.filename}"'
         logger.info(f"User {request.user.username} downloaded attachment: {attachment.filename}")
         return response
     except Exception as e:
         logger.error(f"Error serving attachment {attachment_id}: {e}")
-        raise Http404("File not found")
+        raise Http404("File processing error")
 

@@ -6,6 +6,8 @@ import base64
 import email
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 from datetime import datetime
 from django.utils import timezone
 import logging
@@ -259,20 +261,46 @@ def download_attachment(service, message_id, attachment_id):
     Download attachment from Gmail API
     Returns attachment data as bytes
     """
-    try:
-        attachment = service.users().messages().attachments().get(
-            userId='me',
-            messageId=message_id,
-            id=attachment_id
-        ).execute()
-        
-        # Decode base64 data
-        data = attachment['data']
-        file_data = base64.urlsafe_b64decode(data)
-        return file_data
-    except Exception as e:
-        logger.error(f"Error downloading attachment {attachment_id}: {e}")
-        return None
+    import time
+    from googleapiclient.errors import HttpError
+    
+    max_retries = 7
+    base_delay = 1  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Added num_retries=5 to handle transient rate limits (429) / network errors
+            # We also wrap this in our own loop for more control over backoff
+            attachment = service.users().messages().attachments().get(
+                userId='me',
+                messageId=message_id,
+                id=attachment_id
+            ).execute(num_retries=3)
+            
+            # Decode base64 data
+            data = attachment['data']
+            file_data = base64.urlsafe_b64decode(data)
+            return file_data
+            
+        except HttpError as e:
+            if e.resp.status == 429:
+                # Rate limit hit
+                if attempt == max_retries - 1:
+                    logger.error(f"Rate limit exceeded for attachment {attachment_id} after {max_retries} attempts.")
+                    return None
+                
+                delay = base_delay * (2 ** attempt)
+                logger.warning(f"Rate limit 429. Retrying in {delay}s (Attempt {attempt + 1}/{max_retries})...")
+                time.sleep(delay)
+            else:
+                logger.error(f"HttpError downloading attachment {attachment_id}: {e}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error downloading attachment {attachment_id}: {e}")
+            return None
+    
+    return None
 
 
 def get_or_create_contact(email_addr, name=''):
@@ -364,31 +392,17 @@ def save_email_to_db(email_data, service=None):
             ).first()
             
             if not existing:
-                # Download attachment
-                file_data = download_attachment(
-                    service,
-                    email_data['gmail_id'],
-                    att_meta['attachment_id']
+                # Create Attachment object (Metadata only)
+                attachment = Attachment(
+                    email=email_obj,
+                    gmail_attachment_id=att_meta['attachment_id'],
+                    filename=att_meta['filename'],
+                    mime_type=att_meta['mime_type'],
+                    size_bytes=att_meta['size']
                 )
+                attachment.save()
                 
-                if file_data:
-                    # Create Attachment object
-                    attachment = Attachment(
-                        email=email_obj,
-                        gmail_attachment_id=att_meta['attachment_id'],
-                        filename=att_meta['filename'],
-                        mime_type=att_meta['mime_type'],
-                        size_bytes=att_meta['size']
-                    )
-                    
-                    # Save file
-                    attachment.file.save(
-                        att_meta['filename'],
-                        ContentFile(file_data),
-                        save=True
-                    )
-                    
-                    logger.info(f"Downloaded attachment: {att_meta['filename']} ({att_meta['size']} bytes)")
+                # logger.info(f"Saved attachment metadata: {att_meta['filename']} ({att_meta['size']} bytes)")
         
     return email_obj, created
 
@@ -585,7 +599,7 @@ def check_for_new_emails():
     return result['total'] > 0
 
 
-def create_message(sender, to, subject, message_text, cc=None, bcc=None):
+def create_message(sender, to, subject, message_text, cc=None, bcc=None, attachments=None):
     """
     Create a message for an email.
     
@@ -596,10 +610,14 @@ def create_message(sender, to, subject, message_text, cc=None, bcc=None):
         message_text: The text of the email message.
         cc: CC recipients (string)
         bcc: BCC recipients (string)
+        attachments: List of attachment dicts with keys: 'filename', 'content', 'mimetype'
 
     Returns:
         An object containing a base64url encoded email object.
     """
+    if attachments is None:
+        attachments = []
+    
     message = MIMEMultipart()
     message['to'] = to
     message['from'] = sender
@@ -610,8 +628,37 @@ def create_message(sender, to, subject, message_text, cc=None, bcc=None):
     if bcc:
         message['bcc'] = bcc
 
+    # Attach message text
     msg = MIMEText(message_text)
     message.attach(msg)
+    
+    # Attach files
+    for attachment in attachments:
+        filename = attachment.get('filename', 'attachment')
+        content = attachment.get('content', b'')
+        mimetype = attachment.get('mimetype', 'application/octet-stream')
+        
+        # Parse mimetype into main and sub types
+        if '/' in mimetype:
+            maintype, subtype = mimetype.split('/', 1)
+        else:
+            maintype, subtype = 'application', 'octet-stream'
+        
+        # Create MIME part for attachment
+        part = MIMEBase(maintype, subtype)
+        part.set_payload(content)
+        
+        # Encode as base64
+        encoders.encode_base64(part)
+        
+        # Add header with filename
+        part.add_header(
+            'Content-Disposition',
+            f'attachment; filename="{filename}"'
+        )
+        
+        message.attach(part)
+        logger.info(f"Attached file: {filename} ({len(content)} bytes)")
 
     raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
     return {'raw': raw_message}

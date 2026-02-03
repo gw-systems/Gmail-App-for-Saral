@@ -44,6 +44,17 @@ class AuthService:
         else:
             return False, "Authentication failed during token exchange."
 
+    @staticmethod
+    def get_authorized_accounts(user: User) -> QuerySet[GmailToken]:
+        """
+        Get all GmailTokens that the user is authorized to use.
+        - Staff/Admin: All active tokens
+        - Regular User: Only their own active tokens
+        """
+        if user.has_perm('gmail_integration.view_all_gmail_accounts'):
+            return GmailToken.objects.filter(is_active=True)
+        return GmailToken.objects.filter(user=user, is_active=True)
+
 class EmailService:
     @staticmethod
     def get_threads_for_user(
@@ -140,6 +151,101 @@ class EmailService:
         return thread_list, page_obj, available_accounts
 
     @staticmethod
+    def get_thread_emails(user: User, thread_id: str) -> Optional[QuerySet]:
+        """
+        Get all emails in a thread if user has permission to view them.
+        """
+        # 1. Get emails for thread
+        emails = Email.objects.filter(thread_id=thread_id).order_by('date')
+        
+        if not emails.exists():
+            return None
+            
+        # 2. Check permission (using one of the emails to check account)
+        # Optimization: We check the first email's account
+        first_email = emails.first()
+        from .utils.gmail_auth import is_authenticated_for_account
+        
+        # Check if user can view this account
+        if not is_authenticated_for_account(user, first_email.account_email):
+             return None
+             
+        return emails
+
+    @staticmethod
+    def process_thread_attachments(emails: QuerySet) -> None:
+        """
+        Process emails to add a 'unique_attachments' attribute to each email object.
+        This de-duplicates attachments by filename for display.
+        """
+        for email in emails:
+            seen_filenames = set()
+            unique_attachments = []
+            # Prefetching should be handled by caller if needed, essentially iterating relation here
+            for att in email.attachments.all():
+                if att.filename not in seen_filenames:
+                    unique_attachments.append(att)
+                    seen_filenames.add(att.filename)
+            email.unique_attachments = unique_attachments
+
+    @staticmethod
+    def get_attachment_content(user: User, attachment_id: int) -> Tuple[Optional['Attachment'], Optional[bytes]]:
+        """
+        Get attachment metadata and content if user has permission.
+        Fetches content directly from Gmail API.
+        """
+        from .models import Attachment
+        from .utils.gmail_auth import is_authenticated_for_account, get_gmail_service
+        from .utils.gmail_api import download_attachment
+        
+        try:
+            attachment = Attachment.objects.select_related('email').get(id=attachment_id)
+        except Attachment.DoesNotExist:
+            return None, None
+            
+        email = attachment.email
+        
+        # Check permissions
+        if not is_authenticated_for_account(user, email.account_email):
+            logger.warning(f"User {user.username} denied access to attachment {attachment_id}")
+            return None, None
+            
+        # Get service for the account
+        service = get_gmail_service(account_email=email.account_email)
+        if not service:
+            logger.error(f"Could not get service for {email.account_email} to download attachment")
+            return attachment, None
+            
+        # Download from Gmail
+        file_data = download_attachment(
+            service, 
+            email.gmail_id, 
+            attachment.gmail_attachment_id
+        )
+        
+        return attachment, file_data
+
+    @staticmethod
+    def get_attachment_for_download(user: User, attachment_id: int) -> Optional['Attachment']:
+        """
+        Legacy method - use get_attachment_content instead
+        """
+        from .models import Attachment
+        try:
+            attachment = Attachment.objects.select_related('email').get(id=attachment_id)
+        except Attachment.DoesNotExist:
+            return None
+            
+        email = attachment.email
+        from .utils.gmail_auth import is_authenticated_for_account
+        
+        if is_authenticated_for_account(user, email.account_email):
+            # Check permissions only
+            return attachment
+            
+        return None
+
+    @staticmethod
     def send_email(
         user: User,
         sender_email: str,
@@ -147,7 +253,8 @@ class EmailService:
         subject: str,
         message_text: str,
         cc: str = '',
-        bcc: str = ''
+        bcc: str = '',
+        attachments: list = None
     ) -> bool:
         """
         Orchestrates sending an email:
@@ -158,6 +265,9 @@ class EmailService:
         """
         from .utils.gmail_auth import get_gmail_service
         from .utils.gmail_api import create_message, send_email as send_gmail_api, fetch_emails
+
+        if attachments is None:
+            attachments = []
 
         # 1. Get service
         # Ensure the user owns this account
@@ -179,7 +289,7 @@ class EmailService:
 
         # 2. Create message
         try:
-            msg = create_message(sender_email, to_email, subject, message_text, cc, bcc)
+            msg = create_message(sender_email, to_email, subject, message_text, cc, bcc, attachments)
             
             # 3. Send email
             sent_msg = send_gmail_api(service, 'me', msg)
